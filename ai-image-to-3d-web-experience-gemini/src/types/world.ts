@@ -17,22 +17,6 @@ export interface WorldOptions {
   onPointerActivity?: () => void;
 }
 
-/** Proiezione a schermo di un hotspot/figurina del mini-game. */
-export interface HotspotProjection {
-  id: string;
-  /** Coordinate in pixel CSS relative al canvas. */
-  x: number;
-  y: number;
-  /** Distanza dalla camera in unità mondo. */
-  depth: number;
-  /** True se il punto è davanti alla camera e dentro il viewport (con margine). */
-  visible: boolean;
-  /** True se la figurina è coperta da terreno, muri o alberi del borgo. */
-  occluded: boolean;
-  /** Fattore di scala prospettico suggerito per il marker DOM. */
-  scale: number;
-}
-
 export interface SelectedObjectInfo {
   type: 'house' | 'windmill' | 'waterfall' | 'bridge' | 'tree' | 'cliff' | 'airship' | 'boat';
   title: string;
@@ -77,10 +61,7 @@ export interface WorldInstance {
   getStats: () => { fps: number; drawCalls: number; triangles: number };
   setReferenceImage: (imagePathOrDataUrl: string) => Promise<ImageAnalysisResult>;
   getImageAnalysis: () => ImageAnalysisResult | null;
-  /** Proietta a schermo gli hotspot richiesti (usato dal layer dei tesori). */
-  getHotspotProjection: (ids: string[]) => HotspotProjection[];
-  /** Dimensioni in pixel CSS del canvas di rendering. */
-  getViewport: () => { width: number; height: number };
+  /** Segna una figurina come raccolta (o la ripristina) con la relativa animazione. */
   setTreasureCollected: (id: string, collected: boolean) => void;
   setTreasureHovered: (id: string | null) => void;
   resetTreasures: () => void;

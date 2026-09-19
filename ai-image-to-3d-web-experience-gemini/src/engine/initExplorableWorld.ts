@@ -5,7 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
-import { WorldInstance, WorldOptions, LightingMode, CameraBookmark, ImageAnalysisResult, SelectedObjectInfo, HotspotProjection } from '../types/world';
+import { WorldInstance, WorldOptions, LightingMode, CameraBookmark, ImageAnalysisResult, SelectedObjectInfo } from '../types/world';
 import { TiltShiftShader } from './shaders/TiltShiftShader';
 import { buildIsland } from './procedural/IslandBuilder';
 import { buildWater } from './procedural/WaterBuilder';
@@ -112,14 +112,10 @@ export function initExplorableWorld(
   const village = buildVillage();
   const foliage = buildFoliage();
   const atmosphere = buildAtmosphere();
-  const treasure = buildTreasureHunt();
-
-  scene.add(island.group);
-  scene.add(water.group);
-  scene.add(village.group);
-  scene.add(foliage.group);
-  scene.add(atmosphere.group);
-  scene.add(treasure.group);
+  // Il posizionamento dei tesori ha bisogno di matrici aggiornate e del suolo reale.
+  island.group.updateMatrixWorld(true);
+  village.group.updateMatrixWorld(true);
+  foliage.group.updateMatrixWorld(true);
 
   // Insiemi di mesh "solide" usate per capire se una figurina è coperta dal borgo.
   const occluders: THREE.Object3D[] = [];
@@ -137,6 +133,63 @@ export function initExplorableWorld(
   collectOccluders(island.group);
   collectOccluders(village.group);
   collectOccluders(foliage.group);
+
+
+  const groundMeshes: THREE.Object3D[] = [];
+  island.group.traverse(obj => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh && mesh.material === island.materials.grass) groundMeshes.push(mesh);
+  });
+
+  const groundRaycaster = new THREE.Raycaster();
+  const downDirection = new THREE.Vector3(0, -1, 0);
+
+  /** Altezza del prato sotto (x, z) letta dal mesh dell'isola. */
+  const sampleGround = (x: number, z: number): number | null => {
+    groundRaycaster.set(new THREE.Vector3(x, 6, z), downDirection);
+    groundRaycaster.near = 0;
+    groundRaycaster.far = 12;
+    const hit = groundRaycaster.intersectObjects(groundMeshes, false)[0];
+    return hit ? hit.point.y : null;
+  };
+
+  // Angolazioni di vista tipiche attorno al borgo (la prima è la POV isometrica
+  // di riferimento): una figurina è "trovabile" se è libera da ostacoli da alcune
+  // di queste direzioni — mimetizzata sì, ma non irreperibile.
+  const approachEyes: THREE.Vector3[] = [45, 0, 90, 180, 270, 135, 225, 315].map(degrees => {
+    const radians = THREE.MathUtils.degToRad(degrees);
+    return new THREE.Vector3(Math.cos(radians) * 10.6, 8.2, Math.sin(radians) * 10.6);
+  });
+
+  const approachRaycaster = new THREE.Raycaster();
+  const approachDirection = new THREE.Vector3();
+
+  const countClearApproaches = (x: number, y: number, z: number): number => {
+    const point = new THREE.Vector3(x, y + 0.12, z);
+    let clear = 0;
+    for (const eye of approachEyes) {
+      const distance = eye.distanceTo(point);
+      approachRaycaster.near = 0.1;
+      approachRaycaster.far = Math.max(0.2, distance - 0.05);
+      approachRaycaster.set(eye, approachDirection.copy(point).sub(eye).normalize());
+      if (approachRaycaster.intersectObjects(occluders, false).length === 0) clear += 1;
+    }
+    return clear;
+  };
+
+  const treasure = buildTreasureHunt({
+    obstacles: village.getPlacementObstacles(),
+    natureColliders: foliage.getPlacementColliders(),
+    sampleGround,
+    countClearApproaches,
+  });
+
+  scene.add(island.group);
+  scene.add(water.group);
+  scene.add(village.group);
+  scene.add(foliage.group);
+  scene.add(atmosphere.group);
+  scene.add(treasure.group);
 
   let latestAnalysis: ImageAnalysisResult | null = null;
 
@@ -172,25 +225,63 @@ export function initExplorableWorld(
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
 
+  /**
+   * True se la figurina è effettivamente in vista: nessun muro, tetto, tronco o
+   * cespuglio fra la camera e l'oggetto. Evita di "raccogliere" tesori nascosti
+   * toccando alla cieca dove si trova l'oggetto coperto.
+   */
+  const treasureCenter = new THREE.Vector3();
+
+  const isClearLine = (point: THREE.Vector3, margin: number): boolean => {
+    const distance = camera.position.distanceTo(point);
+    if (distance < 0.6) return true;
+    hotspotRaycaster.near = 0.1;
+    hotspotRaycaster.far = Math.max(0.2, distance - margin);
+    hotspotRaycaster.set(camera.position, rayDirection.copy(point).sub(camera.position).normalize());
+    return hotspotRaycaster.intersectObjects(occluders, false).length === 0;
+  };
+
+  /**
+   * La figurina è raccoglibile solo se è davvero in vista. Si accetta anche la
+   * linea di vista verso il centro dell'oggetto: se il dito sfiora una foglia
+   * vicino al bordo, il tocco resta valido.
+   */
+  const isTreasureVisible = (target: THREE.Intersection): boolean => {
+    if (target.distance < 0.6) return true;
+    if (isClearLine(target.point, 0.04)) return true;
+    target.object.getWorldPosition(treasureCenter);
+    return isClearLine(treasureCenter, 0.04);
+  };
+
+  const pickTreasure = (): string | null => {
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(treasure.pickTargets, false);
+    for (const hit of hits) {
+      const treasureId = hit.object.userData?.treasureId as string | undefined;
+      if (!treasureId) continue;
+      if (isTreasureVisible(hit)) return treasureId;
+    }
+    return null;
+  };
+
   const onPointerDown = (event: MouseEvent) => {
     // Only handle primary left click without dragging
     if (event.button !== 0) return;
+    // Ignora i click generati da un trascinamento della camera
+    if (Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 6) return;
+
     const rect = canvasElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    raycaster.setFromCamera(mouse, camera);
-
     // Tap diretto su una figurina del mini-game (priorità massima)
-    const treasureHits = raycaster.intersectObjects(treasure.pickTargets, false);
-    if (treasureHits.length > 0) {
-      const treasureId = treasureHits[0].object.userData?.treasureId as string | undefined;
-      if (treasureId) {
-        options.onTreasureHit?.(treasureId);
-        return;
-      }
+    const treasureId = pickTreasure();
+    if (treasureId) {
+      options.onTreasureHit?.(treasureId);
+      return;
     }
 
+    raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(getClickableObjects(), true);
 
     if (intersects.length > 0) {
@@ -219,11 +310,50 @@ export function initExplorableWorld(
 
   // Notifica attività utente (usata per sospendere l'auto-rotazione durante la caccia).
   // In fase di capture: l'OrbitControls ferma la propagazione degli eventi pointer.
-  const onPointerActivity = () => {
+  const pointerStart = { x: -999, y: -999 };
+  let hoverDirty = false;
+  let hoveredTreasure: string | null = null;
+
+  const onPointerDownActivity = (event: PointerEvent) => {
+    pointerStart.x = event.clientX;
+    pointerStart.y = event.clientY;
     options.onPointerActivity?.();
   };
-  canvasElement.addEventListener('pointerdown', onPointerActivity, { capture: true });
-  canvasElement.addEventListener('wheel', onPointerActivity, { capture: true, passive: true });
+
+  const onWheelActivity = () => {
+    options.onPointerActivity?.();
+  };
+
+  const onPointerMove = (event: PointerEvent) => {
+    const rect = canvasElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    hoverDirty = true;
+    options.onPointerActivity?.();
+  };
+
+  const onPointerLeave = () => {
+    hoverDirty = false;
+    if (hoveredTreasure !== null) {
+      hoveredTreasure = null;
+      treasure.handles.forEach(handle => handle.setHovered(false));
+      canvasElement.style.cursor = '';
+    }
+  };
+
+  canvasElement.addEventListener('pointerdown', onPointerDownActivity, { capture: true });
+  canvasElement.addEventListener('pointermove', onPointerMove, { capture: true });
+  canvasElement.addEventListener('pointerleave', onPointerLeave);
+  canvasElement.addEventListener('wheel', onWheelActivity, { capture: true, passive: true });
+
+  /** Evidenzia solo la figurina realmente visibile sotto il puntatore. */
+  const updateHover = () => {
+    const id = pickTreasure();
+    if (id === hoveredTreasure) return;
+    hoveredTreasure = id;
+    treasure.handles.forEach(handle => handle.setHovered(handle.id === id));
+    canvasElement.style.cursor = id ? 'pointer' : '';
+  };
 
   // Resize handler
   const onResize = () => {
@@ -241,66 +371,9 @@ export function initExplorableWorld(
 
   window.addEventListener('resize', onResize);
 
-  // --- Mini-game hotspots: proiezione a schermo + occlusion test -------------
+  // --- Mini-game: raggi per il tap/hover in 3D e test di visibilità ----------
   const hotspotRaycaster = new THREE.Raycaster();
-  const projected = new THREE.Vector3();
-  const worldPosition = new THREE.Vector3();
   const rayDirection = new THREE.Vector3();
-
-  // L'occlusione è costosa (9 raggi contro ~580 mesh): calcolata a frame alterni
-  // e riusata per il frame successivo, senza differenze percebibili.
-  const occlusionCache = new Map<string, boolean>();
-  let projectionTick = 0;
-
-  const getHotspotProjection = (ids: string[]): HotspotProjection[] => {
-    const parent = canvasElement.parentElement;
-    const w = parent ? parent.clientWidth : window.innerWidth;
-    const h = parent ? parent.clientHeight : window.innerHeight;
-    const margin = 90;
-    const runOcclusion = projectionTick % 2 === 0;
-    projectionTick += 1;
-
-    return ids.map(id => {
-      const anchor = treasure.getMarkerAnchor(id);
-      if (!anchor) {
-        return { id, x: 0, y: 0, depth: 0, visible: false, occluded: true, scale: 1 };
-      }
-
-      anchor.getWorldPosition(worldPosition);
-      const depth = camera.position.distanceTo(worldPosition);
-
-      projected.copy(worldPosition).project(camera);
-      const inFront = projected.z < 1;
-      const x = (projected.x * 0.5 + 0.5) * w;
-      const y = (-projected.y * 0.5 + 0.5) * h;
-      const onScreen = x > -margin && x < w + margin && y > -margin && y < h + margin;
-
-      let occluded = occlusionCache.get(id) ?? false;
-      if (inFront && runOcclusion) {
-        hotspotRaycaster.near = 0.1;
-        hotspotRaycaster.far = Math.max(0.2, depth - 0.35);
-        hotspotRaycaster.set(
-          camera.position,
-          rayDirection.copy(worldPosition).sub(camera.position).normalize()
-        );
-        occluded = hotspotRaycaster.intersectObjects(occluders, false).length > 0;
-        occlusionCache.set(id, occluded);
-      }
-
-      // Scala prospettica: le figurine vicine risultano più grandi.
-      const scale = THREE.MathUtils.clamp(1.14 - (depth - 9.5) * 0.022, 0.78, 1.16);
-
-      return {
-        id,
-        x,
-        y,
-        depth,
-        visible: inFront && onScreen,
-        occluded: occluded || !inFront || !onScreen,
-        scale,
-      };
-    });
-  };
 
   // Stats calculation
   let fps = 60;
@@ -330,11 +403,15 @@ export function initExplorableWorld(
 
     // Update animations
     controls.update();
+    if (hoverDirty) {
+      hoverDirty = false;
+      updateHover();
+    }
+    treasure.update(delta);
     water.update(delta);
     village.update(delta);
     foliage.update(delta);
     atmosphere.update(delta);
-    treasure.update(delta, clock.elapsedTime);
 
     // Render with post-processing (or standard renderer if composer disabled)
     if (tiltShiftPass.uniforms.enabled.value > 0.5) {
@@ -479,8 +556,10 @@ export function initExplorableWorld(
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', onResize);
       canvasElement.removeEventListener('click', onPointerDown);
-      canvasElement.removeEventListener('pointerdown', onPointerActivity, { capture: true });
-      canvasElement.removeEventListener('wheel', onPointerActivity, { capture: true });
+      canvasElement.removeEventListener('pointerdown', onPointerDownActivity, { capture: true });
+      canvasElement.removeEventListener('pointermove', onPointerMove, { capture: true });
+      canvasElement.removeEventListener('pointerleave', onPointerLeave);
+      canvasElement.removeEventListener('wheel', onWheelActivity, { capture: true });
       controls.dispose();
       renderer.dispose();
       composer.dispose();
@@ -581,19 +660,15 @@ export function initExplorableWorld(
 
     getImageAnalysis: () => latestAnalysis,
 
-    getHotspotProjection,
-
-    getViewport: () => ({
-      width: canvasElement.parentElement?.clientWidth || window.innerWidth,
-      height: canvasElement.parentElement?.clientHeight || window.innerHeight,
-    }),
-
     setTreasureCollected: (id: string, collected: boolean) => {
-      treasure.setCollected(id, collected);
+      const handle = treasure.handles.find(entry => entry.id === id);
+      if (!handle) return;
+      if (collected) handle.collect();
+      else handle.reset();
     },
 
     setTreasureHovered: (id: string | null) => {
-      treasure.setHovered(id);
+      treasure.handles.forEach(handle => handle.setHovered(handle.id === id));
     },
 
     resetTreasures: () => {

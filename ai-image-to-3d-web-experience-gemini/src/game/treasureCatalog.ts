@@ -23,14 +23,20 @@ export type TreasureId = (typeof TREASURE_IDS)[number];
 
 export interface TreasureDefinition {
   id: TreasureId;
-  /** Etichetta mostrata nel gioco (come da specifica). */
+  /** Etichetta mostrata nelle schede di gioco (come da specifica). */
   label: string;
-  /** Emoji usata sia nel DOM sia come figurina 3D (sprite). */
+  /** Emoji usata solo nelle schede/riepiloghi, mai sovrapposta alla scena 3D. */
   emoji: string;
-  /** Luogo del borgo in cui compare la figurina (solo descrittivo). */
+  /** Luogo del borgo in cui nascondere la figurina. */
   area: string;
-  /** Posizione della figurina all'interno del diorama 3D. */
-  spot: [number, number, number];
+  /**
+   * Ancora (x, z) del luogo del borgo attorno a cui viene nascosta la figurina.
+   * L'altezza è ricavata dal terreno; attorno all'ancora il posizionamento
+   * automatico cerca uno spiazzo libero tra case, alberi e muri.
+   */
+  anchor: [number, number];
+  /** Altezza fissa quando la figurina poggia su una struttura (ponte, molo). */
+  surfaceY?: number;
 }
 
 export const TREASURES: TreasureDefinition[] = [
@@ -39,63 +45,65 @@ export const TREASURES: TreasureDefinition[] = [
     label: 'caffè',
     emoji: '☕',
     area: 'Piazza del Borgo',
-    spot: [0.5, 1.9, 0.35],
+    anchor: [0.35, 0.35],
   },
   {
     id: 'scarpe',
     label: 'scarpe',
     emoji: '👟',
     area: 'Vicolo del Ciabattino',
-    spot: [-1.15, 1.8, -1.7],
+    anchor: [-0.85, -1.85],
   },
   {
     id: 'vino',
     label: 'vino',
     emoji: '🍷',
     area: 'Terrazze del Vigneto',
-    spot: [3.0, 1.95, -3.3],
+    anchor: [2.35, -2.85],
   },
   {
     id: 'pizza',
     label: 'pizza',
     emoji: '🍕',
-    area: 'Taverna sul Canale',
-    spot: [0.4, 1.85, -0.9],
+    area: 'Ponte di Legno',
+    anchor: [-0.2, -0.3],
+    surfaceY: 0.5,
   },
   {
     id: 'insalata',
     label: 'insalata',
     emoji: '🥗',
     area: 'Giardini Fioriti',
-    spot: [1.35, 1.8, 2.95],
+    anchor: [1.05, 2.5],
   },
   {
     id: 'lasagne',
     label: 'lasagne',
     emoji: '🍝',
     area: 'Granai del Fiume',
-    spot: [1.5, 1.9, -2.5],
+    anchor: [0.7, -2.45],
   },
   {
     id: 'pollo',
     label: 'pollo',
     emoji: '🍗',
     area: 'Frutteto Sud',
-    spot: [3.1, 1.85, 1.85],
+    anchor: [2.35, 2.6],
   },
   {
     id: 'patate',
     label: 'patate',
     emoji: '🥔',
     area: 'Molo dei Pescatori',
-    spot: [2.15, 1.8, 0.55],
+    anchor: [1.4, 0.15],
+    surfaceY: 0.46,
   },
   {
     id: 'bistecca',
     label: 'bistecca',
     emoji: '🥩',
     area: 'Fucina della Valle',
-    spot: [3.9, 1.95, 0.3],
+    anchor: [3.5, 1.15],
   },
 ];
 

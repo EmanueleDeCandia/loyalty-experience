@@ -4,6 +4,8 @@ export interface FoliageBuildResult {
   group: THREE.Group;
   update: (delta: number) => void;
   interactiveObjects: THREE.Object3D[];
+  /** Ingombri al suolo (tronchi, cespugli, fiori) per il posizionamento dei tesori. */
+  getPlacementColliders: () => { x: number; z: number; radius: number }[];
 }
 
 export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildResult {
@@ -11,6 +13,7 @@ export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildR
   group.name = 'FoliageGroup';
 
   const interactiveObjects: THREE.Object3D[] = [];
+  const placementColliders: { x: number; z: number; radius: number }[] = [];
 
   // Trunk materials
   const trunkMat = new THREE.MeshStandardMaterial({
@@ -90,6 +93,7 @@ export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildR
       position: [pos.x, pos.y, pos.z],
     };
     interactiveObjects.push(treeGroup);
+    placementColliders.push({ x: pos.x, z: pos.z, radius: 0.22 * scale });
 
     group.add(treeGroup);
   };
@@ -121,6 +125,7 @@ export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildR
       position: [pos.x, pos.y, pos.z],
     };
     interactiveObjects.push(pineGroup);
+    placementColliders.push({ x: pos.x, z: pos.z, radius: 0.2 * scale });
 
     group.add(pineGroup);
   };
@@ -199,6 +204,7 @@ export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildR
     bush.castShadow = true;
     bush.receiveShadow = true;
     group.add(bush);
+    placementColliders.push({ x: bx, z: bz, radius: 0.2 * Math.max(bush.scale.x, bush.scale.z) });
 
     // Occasional flower blossom on bush
     if (Math.random() > 0.4) {
@@ -277,5 +283,6 @@ export function buildFoliage(customColors?: { foliage?: string }): FoliageBuildR
     group,
     update,
     interactiveObjects,
+    getPlacementColliders: () => placementColliders,
   };
 }

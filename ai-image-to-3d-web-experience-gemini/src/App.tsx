@@ -13,7 +13,6 @@ import { ComparisonSlider } from './components/ComparisonSlider';
 import { PipelineModal } from './components/PipelineModal';
 import { ObjectInspector } from './components/ObjectInspector';
 import { HuntHud } from './components/HuntHud';
-import { HuntHotspotLayer } from './components/HuntHotspotLayer';
 import { TreasureStartModal } from './components/TreasureStartModal';
 import { TreasureResultModal } from './components/TreasureResultModal';
 import { TreasureId } from './game/treasureCatalog';
@@ -43,6 +42,7 @@ export function App() {
   const hunt = useTreasureHunt();
   const [isStartModalOpen, setIsStartModalOpen] = useState<boolean>(false);
   const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
+  const [huntHint, setHuntHint] = useState<string | null>(null);
   const revealRef = useRef<(id: TreasureId) => void>(() => {});
   revealRef.current = hunt.reveal;
   const lastActivityRef = useRef<number>(0);
@@ -144,13 +144,30 @@ export function App() {
     };
   }, []);
 
-  // Sincronizza lo stato delle figurine 3D con la sessione di gioco.
+  // Sincronizza le figurine 3D con la sessione, applicando solo le differenze:
+  // così ogni raccolta mantiene la propria animazione senza ripeterla sulle altre.
+  const syncedSessionRef = useRef<number>(-1);
+  const collectedRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     const world = worldRef.current;
     if (!world) return;
-    world.resetTreasures();
+
+    if (syncedSessionRef.current !== hunt.sessionId) {
+      syncedSessionRef.current = hunt.sessionId;
+      collectedRef.current.clear();
+      world.resetTreasures();
+    }
+
     hunt.items.forEach(item => {
-      if (item.revealed) world.setTreasureCollected(item.id, true);
+      const known = collectedRef.current.has(item.id);
+      if (item.revealed && !known) {
+        collectedRef.current.add(item.id);
+        world.setTreasureCollected(item.id, true);
+      } else if (!item.revealed && known) {
+        collectedRef.current.delete(item.id);
+        world.setTreasureCollected(item.id, false);
+      }
     });
   }, [hunt.sessionId, hunt.items]);
 
@@ -174,6 +191,27 @@ export function App() {
     }, 500);
     return () => window.clearInterval(interval);
   }, [autoRotate, hunt.phase]);
+
+  // Bussola del borgo: suggerisce l'area di una figurina ancora da trovare.
+  useEffect(() => {
+    if (hunt.phase !== 'active') {
+      setHuntHint(null);
+      return;
+    }
+
+    const refreshHint = () => {
+      const remaining = hunt.items.filter(item => !item.revealed);
+      if (remaining.length === 0) {
+        setHuntHint(null);
+        return;
+      }
+      setHuntHint(remaining[Math.floor(Math.random() * remaining.length)].area);
+    };
+
+    refreshHint();
+    const interval = window.setInterval(refreshHint, 6000);
+    return () => window.clearInterval(interval);
+  }, [hunt.phase, hunt.items]);
 
   // Apre automaticamente la modale risultati a fine sessione.
   useEffect(() => {
@@ -204,15 +242,6 @@ export function App() {
       setPendingDeepLink(false);
     }
   }, [pendingDeepLink, isLoading]);
-
-  const handleRevealTreasure = useCallback((id: TreasureId) => {
-    markActivity();
-    revealRef.current(id);
-  }, [markActivity]);
-
-  const handleHoverTreasure = useCallback((id: TreasureId | null) => {
-    worldRef.current?.setTreasureHovered(id);
-  }, []);
 
   const handleOpenStartModal = useCallback(() => {
     markActivity();
@@ -403,15 +432,6 @@ export function App() {
         className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing outline-none"
       />
 
-      {/* Overlay interattivo delle figurine "Caccia ai Tesori" */}
-      <HuntHotspotLayer
-        worldRef={worldRef}
-        items={hunt.items}
-        phase={hunt.phase}
-        onReveal={handleRevealTreasure}
-        onHover={handleHoverTreasure}
-      />
-
       {/* Top Header */}
       <Header
         fps={stats.fps}
@@ -437,6 +457,8 @@ export function App() {
             result={hunt.result}
             record={hunt.record}
             muted={hunt.muted}
+            feed={hunt.feed}
+            hint={huntHint}
             onOpenStart={handleOpenStartModal}
             onReplay={handleReplayHunt}
             onAbandon={handleAbandonHunt}
@@ -451,7 +473,7 @@ export function App() {
         <MousePointer className="w-3.5 h-3.5 text-cyan-400" />
         <span>
           {hunt.phase === 'active'
-            ? 'Caccia ai Tesori: tocca le figurine per raccogliere i punti · trascina per ruotare il borgo'
+            ? 'Caccia ai Tesori: cerca le figurine nascoste tra case e alberi · toccale per raccoglierle'
             : 'Orbit: Left-drag · Zoom: Scroll · Pan: Right-drag · Click objects to inspect'}
         </span>
       </div>

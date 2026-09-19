@@ -21,16 +21,25 @@ con un mini-game di caccia ai tesori integrato nella scena 3D.
 
 - **Trigger di avvio** — il countdown parte al primo tocco su una figurina **oppure** premendo
   "Inizia la caccia" nella modale di benvenuto.
-- **Figurine nel 3D** — ogni tesoro è un trofeo sospeso (emoji + anello dorato + alone) costruito in
-  `src/engine/procedural/TreasureBuilder.ts` e posizionato sopra un luogo del borgo.
-- **Hotspot DOM ancorati al 3D** — `src/components/HuntHotspotLayer.tsx` proietta a schermo le
-  figurine con un unico `requestAnimationFrame`, aggiornando posizione, scala prospettica,
-  profondità e stato di occlusione. Le figurine coperte da case, terreno o alberi appaiono
-  offuscate e diventano cliccabili solo quando le si inquadra (ruotando/zoomando il diorama).
-- **Feedback** — flip 3D della figurina con `+X pt`, punteggio flottante, micro-vibrazioni
-  (`navigator.vibrate`) ed effetti sonori sintetizzati via WebAudio (`src/game/huntAudio.ts`, senza asset).
-- **Schermata finale** — medaglia SVG per tier, punteggio, figurine raccolte, tempo impiegato,
-  badge premio con codice voucher (copiabile) e pulsante **Condividi su WhatsApp**.
+- **Figurine mimetizzate nel borgo** — ogni tesoro è un piccolo **modello 3D di cibo** costruito in
+  `src/engine/procedural/TreasureBuilder.ts` (caffettiera moka, paio di scarpe, bottiglia, pizza su
+  tagliere, ciotola d'insalata, teglia di lasagne, pollo arrosto, cesta di patate, bistecca con osso).
+  Niente icone, etichette o numeri sopra la scena: la ricerca è la parte sfidante del gioco.
+- **Posizionamento automatico** — le figurine vengono appoggiate al suolo reale dell'isola (raycast
+  sul manto erboso) accanto a case, alberi, cespugli, moli e ponti, con un algoritmo che evita gli
+  ingombri e sceglie lo spiazzo visibile dal maggior numero di angolazioni: nascoste ma trovabili.
+- **Interazione pura in 3D** — tap e hover con raycast direttamente sugli oggetti; una figurina è
+  raccoglibile solo se è davvero in vista (nessun muro, tetto o tronco fra camera e oggetto). Al
+  tocco: salto, giro, scintille dorate e dissolvenza verso l'aspetto "già trovato".
+- **Bussola del borgo** — durante la caccia un indizio suggerisce l'area in cui cercare una figurina
+  ancora da trovare, così la difficoltà resta alta ma non frustrante.
+- **Feedback** — avviso "+X pt · nome" nell'HUD, micro-vibrazioni (`navigator.vibrate`) ed effetti
+  sonori sintetizzati via WebAudio (`src/game/huntAudio.ts`, senza asset).
+- **Scheda dell'Esploratore** — interfaccia in stile fantasy del borgo (pergamena, cornici dorate,
+  fregi, sigilli di cera, stemma araldico): regole, figurine da trovare, scala delle medaglie e
+  taccuino con rango, record e voucher vinti.
+- **Resoconto finale** — medaglia SVG animata per tier, punteggio, figurine raccolte, tempo impiegato,
+  badge premio con sigillo di cera e codice voucher (copiabile), pulsante **Condividi su WhatsApp**.
 - **Viral loop** — il messaggio condiviso è pre-compilato con `encodeURIComponent` e link
   `https://api.whatsapp.com/send?text=…`; il link dell'app include `?caccia=1`, così chi lo apre
   atterra direttamente sulla schermata di avvio della caccia.
@@ -50,18 +59,18 @@ src/
   engine/
     initExplorableWorld.ts        # renderer, camera, luci, post-processing, raycast, hotspot API
     procedural/
-      TreasureBuilder.ts          # le 9 figurine 3D del mini-game
+      TreasureBuilder.ts          # modelli 3D delle 9 figurine + posizionamento nel borgo
       IslandBuilder|VillageBuilder|FoliageBuilder|WaterBuilder|AtmosphereBuilder.ts
   game/
     treasureCatalog.ts            # catalogo figurine, punti, tier, voucher, messaggi WhatsApp
     useTreasureHunt.ts            # stato sessione (idle|active|completed), timer, punteggio, record
     huntAudio.ts                  # SFX WebAudio + vibrazioni
   components/
-    HuntHotspotLayer.tsx          # chip cliccabili ancorati alle figurine 3D
-    HuntHud.tsx                   # HUD: CTA, timer circolare, punteggio, mute, esci/rigioca
-    TreasureStartModal.tsx        # modale di avvio con regole e scala premi
-    TreasureResultModal.tsx       # schermata finale: medaglia, voucher, condivisione WhatsApp
+    HuntHud.tsx                   # HUD pergamena: clessidra, punteggio, feedback, bussola, mute
+    TreasureStartModal.tsx        # "Scheda dell'Esploratore": regole, figurine, medaglie, taccuino
+    TreasureResultModal.tsx       # resoconto finale: medaglia, voucher, condivisione WhatsApp
     MedalBadge.tsx                # badge SVG delle medaglie (argento/oro/platino/diamante)
+    fantasy/Ornaments.tsx         # cornici, fregi, sigilli di cera e stemma del borgo
 ```
 
 ## Comandi

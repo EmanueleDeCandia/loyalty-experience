@@ -12,6 +12,15 @@ export interface IslandBuildResult {
   getRiverPathPoint: (t: number) => THREE.Vector3;
 }
 
+/**
+ * Altezza approssimata del manto erboso del diorama.
+ * Riproduce la formula usata per deformare il plateau (hillocks + bordo riva),
+ * così gli oggetti appoggiati al suolo non restano sospesi o affondati.
+ */
+export function sampleTerrainHeight(x: number, z: number): number {
+  return 0.38 + Math.sin(x * 0.5 + 1.0) * 0.175 + Math.cos(z * 0.5) * 0.125;
+}
+
 export function buildIsland(customColors?: { grass?: string; rock?: string }): IslandBuildResult {
   const group = new THREE.Group();
   group.name = 'IslandCoreGroup';

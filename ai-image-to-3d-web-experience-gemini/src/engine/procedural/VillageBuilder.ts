@@ -5,6 +5,16 @@ export interface VillageBuildResult {
   update: (delta: number) => void;
   setNightMode: (isNight: boolean) => void;
   interactiveObjects: THREE.Object3D[];
+  /** Ingombri (cerchi) usati per non nascondere oggetti dentro case o strutture. */
+  getPlacementObstacles: () => PlacementObstacle[];
+}
+
+/** Ingombro circolare di un manufatto del borgo, usato dal posizionamento automatico. */
+export interface PlacementObstacle {
+  x: number;
+  z: number;
+  radius: number;
+  kind: 'house' | 'structure';
 }
 
 export function buildVillage(customColors?: { roof?: string }): VillageBuildResult {
@@ -12,6 +22,7 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
   group.name = 'VillageGroup';
 
   const interactiveObjects: THREE.Object3D[] = [];
+  const placementObstacles: PlacementObstacle[] = [];
 
   // Materials
   const roofColor = customColors?.roof ? new THREE.Color(customColors.roof) : new THREE.Color(0xd65838);
@@ -164,6 +175,15 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
     };
     interactiveObjects.push(houseGroup);
 
+    // Ingombro della casa (circoscritto, tiene conto di rotazione e scala):
+    // serve a nascondere i tesori *accanto* alle case, mai dentro le mura.
+    placementObstacles.push({
+      x: pos.x,
+      z: pos.z,
+      radius: 0.56 * scale,
+      kind: 'house',
+    });
+
     group.add(houseGroup);
     return houseGroup;
   };
@@ -289,6 +309,7 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
   };
   interactiveObjects.push(windmillGroup);
   group.add(windmillGroup);
+  placementObstacles.push({ x: windmillGroup.position.x, z: windmillGroup.position.z, radius: 0.95, kind: 'structure' });
 
   // 3. Arched River Bridge
   const bridgeGroup = new THREE.Group();
@@ -340,6 +361,7 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
   };
   interactiveObjects.push(bridgeGroup);
   group.add(bridgeGroup);
+  placementObstacles.push({ x: bridgeGroup.position.x, z: bridgeGroup.position.z, radius: 0.42, kind: 'structure' });
 
   // 4. Wooden Pier / Dock & Rowboat
   const dockGroup = new THREE.Group();
@@ -376,6 +398,7 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
   interactiveObjects.push(boatGroup);
   dockGroup.add(boatGroup);
   group.add(dockGroup);
+  placementObstacles.push({ x: dockGroup.position.x, z: dockGroup.position.z, radius: 0.3, kind: 'structure' });
 
   // 5. Cozy Street Lanterns along pathways
   const lanternMat = new THREE.MeshStandardMaterial({
@@ -455,5 +478,6 @@ export function buildVillage(customColors?: { roof?: string }): VillageBuildResu
     update,
     setNightMode,
     interactiveObjects,
+    getPlacementObstacles: () => placementObstacles,
   };
 }

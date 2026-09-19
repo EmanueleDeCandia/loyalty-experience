@@ -104,6 +104,15 @@ function createInitialState(): SessionState {
   return { phase: 'idle', items: createSessionItems(), deadline: null, startedAt: null };
 }
 
+/** Evento di raccolta mostrato come feedback nell'HUD. */
+export interface HuntFeedEntry {
+  key: number;
+  label: string;
+  emoji: string;
+  points: number;
+  total: number;
+}
+
 export interface TreasureHuntApi {
   phase: HuntPhase;
   items: HuntItem[];
@@ -116,6 +125,8 @@ export interface TreasureHuntApi {
   muted: boolean;
   /** Contatore che identifica la sessione corrente (utile per resettare la scena 3D). */
   sessionId: number;
+  /** Ultime figurine raccolte, per il feedback "+X pt" nell'HUD. */
+  feed: HuntFeedEntry[];
   start: () => void;
   reveal: (id: TreasureId) => void;
   /** Rigioca: azzera timer, punti e figurine riportando la sessione a "idle". */
@@ -134,6 +145,7 @@ export function useTreasureHunt(): TreasureHuntApi {
   const [sessionId, setSessionId] = useState(0);
   const [, forceRender] = useReducer((counter: number) => counter + 1, 0);
   const [result, setResult] = useState<HuntResult | null>(null);
+  const [feed, setFeed] = useState<HuntFeedEntry[]>([]);
   const [record, setRecord] = useState<StoredProgress>(() => loadProgress());
   const [muted, setMuted] = useState<boolean>(false);
 
@@ -208,6 +220,7 @@ export function useTreasureHunt(): TreasureHuntApi {
     };
     revealCounterRef.current = 0;
     setResult(null);
+    setFeed([]);
     setSessionId(id => id + 1);
     forceRender();
 
@@ -238,6 +251,22 @@ export function useTreasureHunt(): TreasureHuntApi {
 
       const revealIndex = revealCounterRef.current;
       revealCounterRef.current += 1;
+      const collectedSoFar = items.reduce(
+        (sum, item) => (item.revealed ? sum + item.points : sum),
+        0
+      );
+      setFeed(previous =>
+        [
+          ...previous,
+          {
+            key: revealIndex,
+            label: items[index].label,
+            emoji: items[index].emoji,
+            points,
+            total: collectedSoFar,
+          },
+        ].slice(-3)
+      );
       playTreasureReveal(revealIndex, points);
       vibrate(points >= 9 ? [14, 34, 14] : 14);
       forceRender();
@@ -256,6 +285,7 @@ export function useTreasureHunt(): TreasureHuntApi {
     stateRef.current = createInitialState();
     revealCounterRef.current = 0;
     setResult(null);
+    setFeed([]);
     setSessionId(id => id + 1);
     forceRender();
   }, [clearSessionTimeout]);
@@ -294,6 +324,7 @@ export function useTreasureHunt(): TreasureHuntApi {
       record,
       muted,
       sessionId,
+      feed,
       start,
       reveal,
       replay,
@@ -313,6 +344,7 @@ export function useTreasureHunt(): TreasureHuntApi {
       record,
       muted,
       sessionId,
+      feed,
       start,
       reveal,
       replay,
