@@ -14,6 +14,10 @@ interface HeaderProps {
   onTakeSnapshot: () => void;
   onExportGLTF: () => void;
   onResetPOV: () => void;
+  /** Slot per l'HUD del mini-game "Caccia ai Tesori". */
+  huntSlot?: React.ReactNode;
+  /** Nasconde il pannello statistiche durante la caccia (schermo più libero). */
+  hideStats?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
   onTakeSnapshot,
   onExportGLTF,
   onResetPOV,
+  huntSlot,
+  hideStats,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -56,8 +62,11 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
+      {/* Mini-game HUD (Caccia ai Tesori) */}
+      {huntSlot}
+
       {/* Performance & Scene Stats */}
-      <div className="hidden lg:flex pointer-events-auto items-center gap-3 bg-slate-900/80 backdrop-blur-md border border-slate-700/60 rounded-2xl px-4 py-2 text-xs font-mono text-slate-300 shadow-xl shadow-black/20">
+      <div className={`${hideStats ? 'hidden' : 'hidden lg:flex'} pointer-events-auto items-center gap-3 bg-slate-900/80 backdrop-blur-md border border-slate-700/60 rounded-2xl px-4 py-2 text-xs font-mono text-slate-300 shadow-xl shadow-black/20`}>
         <div className="flex items-center gap-1.5">
           <span className={`inline-block w-2 h-2 rounded-full ${fps >= 50 ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
           <span className="text-white font-bold">{fps}</span>

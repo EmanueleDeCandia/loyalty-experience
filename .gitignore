@@ -1,0 +1,15 @@
+# Dipendenze e artefatti di build
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Cache di tool e verifica headless
+.vite/
+node_modules/.cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.log

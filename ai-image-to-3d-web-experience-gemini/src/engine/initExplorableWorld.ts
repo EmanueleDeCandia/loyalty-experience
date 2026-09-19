@@ -5,13 +5,14 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
-import { WorldInstance, WorldOptions, LightingMode, CameraBookmark, ImageAnalysisResult, SelectedObjectInfo } from '../types/world';
+import { WorldInstance, WorldOptions, LightingMode, CameraBookmark, ImageAnalysisResult, SelectedObjectInfo, HotspotProjection } from '../types/world';
 import { TiltShiftShader } from './shaders/TiltShiftShader';
 import { buildIsland } from './procedural/IslandBuilder';
 import { buildWater } from './procedural/WaterBuilder';
 import { buildVillage } from './procedural/VillageBuilder';
 import { buildFoliage } from './procedural/FoliageBuilder';
 import { buildAtmosphere } from './procedural/AtmosphereBuilder';
+import { buildTreasureHunt } from './procedural/TreasureBuilder';
 import { analyzeReferenceImage } from './analysis/imageProcessor';
 
 export function initExplorableWorld(
@@ -60,9 +61,11 @@ export function initExplorableWorld(
   controls.target.set(0, 0.2, 0);
   controls.maxPolarAngle = Math.PI / 2 + 0.25; // Prevent camera from getting lost under the abyss
 
+  const autoRotateSpeed = options.autoRotateSpeed ?? 0.8;
+
   if (options.autoRotate) {
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.8;
+    controls.autoRotateSpeed = autoRotateSpeed;
   }
 
   // 4. Lighting Rig
@@ -104,17 +107,36 @@ export function initExplorableWorld(
   composer.addPass(tiltShiftPass);
 
   // 6. World Assembly
-  let island = buildIsland();
-  let water = buildWater(island.getRiverPathPoint);
-  let village = buildVillage();
-  let foliage = buildFoliage();
-  let atmosphere = buildAtmosphere();
+  const island = buildIsland();
+  const water = buildWater(island.getRiverPathPoint);
+  const village = buildVillage();
+  const foliage = buildFoliage();
+  const atmosphere = buildAtmosphere();
+  const treasure = buildTreasureHunt();
 
   scene.add(island.group);
   scene.add(water.group);
   scene.add(village.group);
   scene.add(foliage.group);
   scene.add(atmosphere.group);
+  scene.add(treasure.group);
+
+  // Insiemi di mesh "solide" usate per capire se una figurina è coperta dal borgo.
+  const occluders: THREE.Object3D[] = [];
+  const collectOccluders = (root: THREE.Object3D) => {
+    root.traverse(obj => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      // Fumo, petali, vetri trasparenti non devono nascondere i tesori.
+      if (materials.length === 0) return;
+      if (materials.some(m => !m || m.transparent || m.visible === false)) return;
+      occluders.push(mesh);
+    });
+  };
+  collectOccluders(island.group);
+  collectOccluders(village.group);
+  collectOccluders(foliage.group);
 
   let latestAnalysis: ImageAnalysisResult | null = null;
 
@@ -158,6 +180,17 @@ export function initExplorableWorld(
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
+
+    // Tap diretto su una figurina del mini-game (priorità massima)
+    const treasureHits = raycaster.intersectObjects(treasure.pickTargets, false);
+    if (treasureHits.length > 0) {
+      const treasureId = treasureHits[0].object.userData?.treasureId as string | undefined;
+      if (treasureId) {
+        options.onTreasureHit?.(treasureId);
+        return;
+      }
+    }
+
     const intersects = raycaster.intersectObjects(getClickableObjects(), true);
 
     if (intersects.length > 0) {
@@ -184,6 +217,14 @@ export function initExplorableWorld(
 
   canvasElement.addEventListener('click', onPointerDown);
 
+  // Notifica attività utente (usata per sospendere l'auto-rotazione durante la caccia).
+  // In fase di capture: l'OrbitControls ferma la propagazione degli eventi pointer.
+  const onPointerActivity = () => {
+    options.onPointerActivity?.();
+  };
+  canvasElement.addEventListener('pointerdown', onPointerActivity, { capture: true });
+  canvasElement.addEventListener('wheel', onPointerActivity, { capture: true, passive: true });
+
   // Resize handler
   const onResize = () => {
     const parent = canvasElement.parentElement;
@@ -199,6 +240,67 @@ export function initExplorableWorld(
   };
 
   window.addEventListener('resize', onResize);
+
+  // --- Mini-game hotspots: proiezione a schermo + occlusion test -------------
+  const hotspotRaycaster = new THREE.Raycaster();
+  const projected = new THREE.Vector3();
+  const worldPosition = new THREE.Vector3();
+  const rayDirection = new THREE.Vector3();
+
+  // L'occlusione è costosa (9 raggi contro ~580 mesh): calcolata a frame alterni
+  // e riusata per il frame successivo, senza differenze percebibili.
+  const occlusionCache = new Map<string, boolean>();
+  let projectionTick = 0;
+
+  const getHotspotProjection = (ids: string[]): HotspotProjection[] => {
+    const parent = canvasElement.parentElement;
+    const w = parent ? parent.clientWidth : window.innerWidth;
+    const h = parent ? parent.clientHeight : window.innerHeight;
+    const margin = 90;
+    const runOcclusion = projectionTick % 2 === 0;
+    projectionTick += 1;
+
+    return ids.map(id => {
+      const anchor = treasure.getMarkerAnchor(id);
+      if (!anchor) {
+        return { id, x: 0, y: 0, depth: 0, visible: false, occluded: true, scale: 1 };
+      }
+
+      anchor.getWorldPosition(worldPosition);
+      const depth = camera.position.distanceTo(worldPosition);
+
+      projected.copy(worldPosition).project(camera);
+      const inFront = projected.z < 1;
+      const x = (projected.x * 0.5 + 0.5) * w;
+      const y = (-projected.y * 0.5 + 0.5) * h;
+      const onScreen = x > -margin && x < w + margin && y > -margin && y < h + margin;
+
+      let occluded = occlusionCache.get(id) ?? false;
+      if (inFront && runOcclusion) {
+        hotspotRaycaster.near = 0.1;
+        hotspotRaycaster.far = Math.max(0.2, depth - 0.35);
+        hotspotRaycaster.set(
+          camera.position,
+          rayDirection.copy(worldPosition).sub(camera.position).normalize()
+        );
+        occluded = hotspotRaycaster.intersectObjects(occluders, false).length > 0;
+        occlusionCache.set(id, occluded);
+      }
+
+      // Scala prospettica: le figurine vicine risultano più grandi.
+      const scale = THREE.MathUtils.clamp(1.14 - (depth - 9.5) * 0.022, 0.78, 1.16);
+
+      return {
+        id,
+        x,
+        y,
+        depth,
+        visible: inFront && onScreen,
+        occluded: occluded || !inFront || !onScreen,
+        scale,
+      };
+    });
+  };
 
   // Stats calculation
   let fps = 60;
@@ -232,6 +334,7 @@ export function initExplorableWorld(
     village.update(delta);
     foliage.update(delta);
     atmosphere.update(delta);
+    treasure.update(delta, clock.elapsedTime);
 
     // Render with post-processing (or standard renderer if composer disabled)
     if (tiltShiftPass.uniforms.enabled.value > 0.5) {
@@ -376,6 +479,8 @@ export function initExplorableWorld(
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener('resize', onResize);
       canvasElement.removeEventListener('click', onPointerDown);
+      canvasElement.removeEventListener('pointerdown', onPointerActivity, { capture: true });
+      canvasElement.removeEventListener('wheel', onPointerActivity, { capture: true });
       controls.dispose();
       renderer.dispose();
       composer.dispose();
@@ -421,7 +526,7 @@ export function initExplorableWorld(
 
     setCinematicAutoRotate: (enabled: boolean) => {
       controls.autoRotate = enabled;
-      controls.autoRotateSpeed = 0.8;
+      controls.autoRotateSpeed = autoRotateSpeed;
     },
 
     takeScreenshot: () => {
@@ -475,5 +580,24 @@ export function initExplorableWorld(
     },
 
     getImageAnalysis: () => latestAnalysis,
+
+    getHotspotProjection,
+
+    getViewport: () => ({
+      width: canvasElement.parentElement?.clientWidth || window.innerWidth,
+      height: canvasElement.parentElement?.clientHeight || window.innerHeight,
+    }),
+
+    setTreasureCollected: (id: string, collected: boolean) => {
+      treasure.setCollected(id, collected);
+    },
+
+    setTreasureHovered: (id: string | null) => {
+      treasure.setHovered(id);
+    },
+
+    resetTreasures: () => {
+      treasure.reset();
+    },
   };
 }

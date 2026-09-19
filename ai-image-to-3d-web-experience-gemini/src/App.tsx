@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { initExplorableWorld } from './engine/initExplorableWorld';
 import {
   WorldInstance,
@@ -12,6 +12,12 @@ import { ControlsDock } from './components/ControlsDock';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { PipelineModal } from './components/PipelineModal';
 import { ObjectInspector } from './components/ObjectInspector';
+import { HuntHud } from './components/HuntHud';
+import { HuntHotspotLayer } from './components/HuntHotspotLayer';
+import { TreasureStartModal } from './components/TreasureStartModal';
+import { TreasureResultModal } from './components/TreasureResultModal';
+import { TreasureId } from './game/treasureCatalog';
+import { useTreasureHunt } from './game/useTreasureHunt';
 import { Sparkles, MousePointer, Info } from 'lucide-react';
 
 const PRESETS = {
@@ -32,6 +38,17 @@ const PRESETS = {
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const worldRef = useRef<WorldInstance | null>(null);
+
+  // Mini-game "Caccia ai Tesori del Borgo"
+  const hunt = useTreasureHunt();
+  const [isStartModalOpen, setIsStartModalOpen] = useState<boolean>(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState<boolean>(false);
+  const revealRef = useRef<(id: TreasureId) => void>(() => {});
+  revealRef.current = hunt.reveal;
+  const lastActivityRef = useRef<number>(0);
+  const markActivity = useCallback(() => {
+    lastActivityRef.current = performance.now();
+  }, []);
 
   // App State
   const [activePreset, setActivePreset] = useState<'village' | 'autumn' | 'custom'>('village');
@@ -100,6 +117,11 @@ export function App() {
       onObjectSelect: info => {
         setSelectedObject(info);
       },
+      onTreasureHit: id => {
+        markActivity();
+        revealRef.current(id as TreasureId);
+      },
+      onPointerActivity: markActivity,
     });
 
     worldRef.current = world;
@@ -121,6 +143,106 @@ export function App() {
       worldRef.current = null;
     };
   }, []);
+
+  // Sincronizza lo stato delle figurine 3D con la sessione di gioco.
+  useEffect(() => {
+    const world = worldRef.current;
+    if (!world) return;
+    world.resetTreasures();
+    hunt.items.forEach(item => {
+      if (item.revealed) world.setTreasureCollected(item.id, true);
+    });
+  }, [hunt.sessionId, hunt.items]);
+
+  // Durante la caccia l'auto-rotazione è sospesa per non spostare le figurine.
+  useEffect(() => {
+    const world = worldRef.current;
+    if (!world) return;
+    if (hunt.phase === 'active') {
+      world.setCinematicAutoRotate(false);
+      return;
+    }
+    world.setCinematicAutoRotate(autoRotate);
+  }, [hunt.phase, autoRotate]);
+
+  // Auto-rotazione "gentile": riprende solo dopo qualche secondo di inattività.
+  useEffect(() => {
+    if (!autoRotate || hunt.phase === 'active') return;
+    const interval = window.setInterval(() => {
+      const idle = performance.now() - lastActivityRef.current > 2600;
+      worldRef.current?.setCinematicAutoRotate(idle);
+    }, 500);
+    return () => window.clearInterval(interval);
+  }, [autoRotate, hunt.phase]);
+
+  // Apre automaticamente la modale risultati a fine sessione.
+  useEffect(() => {
+    if (hunt.phase === 'completed' && hunt.result) {
+      setIsResultModalOpen(true);
+    }
+  }, [hunt.phase, hunt.result]);
+
+  // Viral loop: il link condiviso (?caccia=1) atterra direttamente sul mini-game.
+  const [pendingDeepLink, setPendingDeepLink] = useState<boolean>(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('caccia') !== '1') return;
+    setPendingDeepLink(true);
+    params.delete('caccia');
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+    );
+  }, []);
+
+  // Mostra la schermata di avvio del mini-game solo a diorama pronto.
+  useEffect(() => {
+    if (pendingDeepLink && !isLoading) {
+      setIsStartModalOpen(true);
+      setPendingDeepLink(false);
+    }
+  }, [pendingDeepLink, isLoading]);
+
+  const handleRevealTreasure = useCallback((id: TreasureId) => {
+    markActivity();
+    revealRef.current(id);
+  }, [markActivity]);
+
+  const handleHoverTreasure = useCallback((id: TreasureId | null) => {
+    worldRef.current?.setTreasureHovered(id);
+  }, []);
+
+  const handleOpenStartModal = useCallback(() => {
+    markActivity();
+    setIsComparing(false);
+    setIsPipelineOpen(false);
+    setIsStartModalOpen(true);
+  }, [markActivity]);
+
+  const handleStartHunt = useCallback(() => {
+    setIsStartModalOpen(false);
+    setIsResultModalOpen(false);
+    setIsComparing(false);
+    setIsPipelineOpen(false);
+    setSelectedObject(null);
+    hunt.start();
+  }, [hunt.start]);
+
+  const handleReplayHunt = useCallback(() => {
+    setIsResultModalOpen(false);
+    worldRef.current?.resetTreasures();
+    worldRef.current?.resetCamera();
+    hunt.replay();
+    setIsStartModalOpen(true);
+  }, [hunt.replay]);
+
+  const handleAbandonHunt = useCallback(() => {
+    setIsResultModalOpen(false);
+    worldRef.current?.resetTreasures();
+    hunt.abandon();
+  }, [hunt.abandon]);
 
   // Preset switching
   const handleSelectPreset = async (presetId: string) => {
@@ -281,6 +403,15 @@ export function App() {
         className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing outline-none"
       />
 
+      {/* Overlay interattivo delle figurine "Caccia ai Tesori" */}
+      <HuntHotspotLayer
+        worldRef={worldRef}
+        items={hunt.items}
+        phase={hunt.phase}
+        onReveal={handleRevealTreasure}
+        onHover={handleHoverTreasure}
+      />
+
       {/* Top Header */}
       <Header
         fps={stats.fps}
@@ -295,12 +426,34 @@ export function App() {
         onTakeSnapshot={handleTakeSnapshot}
         onExportGLTF={handleExportGLTF}
         onResetPOV={handleResetPOV}
+        hideStats={hunt.phase === 'active'}
+        huntSlot={
+          <HuntHud
+            phase={hunt.phase}
+            score={hunt.score}
+            foundCount={hunt.foundCount}
+            totalCount={hunt.totalCount}
+            deadline={hunt.deadline}
+            result={hunt.result}
+            record={hunt.record}
+            muted={hunt.muted}
+            onOpenStart={handleOpenStartModal}
+            onReplay={handleReplayHunt}
+            onAbandon={handleAbandonHunt}
+            onToggleMute={hunt.toggleMute}
+            onOpenResult={() => setIsResultModalOpen(true)}
+          />
+        }
       />
 
       {/* Floating Interaction Hint */}
       <div className="absolute top-20 left-4 z-10 pointer-events-none hidden sm:flex items-center gap-2 bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-full px-3 py-1 text-[11px] text-slate-300 shadow-md">
         <MousePointer className="w-3.5 h-3.5 text-cyan-400" />
-        <span>Orbit: Left-drag · Zoom: Scroll · Pan: Right-drag · Click objects to inspect</span>
+        <span>
+          {hunt.phase === 'active'
+            ? 'Caccia ai Tesori: tocca le figurine per raccogliere i punti · trascina per ruotare il borgo'
+            : 'Orbit: Left-drag · Zoom: Scroll · Pan: Right-drag · Click objects to inspect'}
+        </span>
       </div>
 
       {/* Comparison Split Slider Overlay */}
@@ -347,6 +500,23 @@ export function App() {
         onClose={() => setIsPipelineOpen(false)}
         analysis={analysisResult}
         referenceImageUrl={currentImageUrl}
+      />
+
+      {/* Mini-game: modale di avvio e schermata finale */}
+      <TreasureStartModal
+        isOpen={isStartModalOpen && hunt.phase !== 'completed'}
+        items={hunt.items}
+        record={hunt.record}
+        onStart={handleStartHunt}
+        onClose={() => setIsStartModalOpen(false)}
+      />
+
+      <TreasureResultModal
+        isOpen={isResultModalOpen && hunt.phase === 'completed'}
+        result={hunt.result}
+        items={hunt.items}
+        onReplay={handleReplayHunt}
+        onClose={() => setIsResultModalOpen(false)}
       />
 
       {/* Loading Overlay */}

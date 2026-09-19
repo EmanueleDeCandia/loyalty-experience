@@ -16,4 +16,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "src"),
     },
   },
+  // Il diorama è pensato per essere aperto da mobile e da host/proxy esterni
+  // (es. preview in sandbox): in ascolto su tutte le interfacce senza allowlist.
+  server: {
+    host: true,
+    port: 5173,
+    allowedHosts: true,
+  },
+  preview: {
+    host: true,
+    port: 4173,
+    allowedHosts: true,
+  },
 });
