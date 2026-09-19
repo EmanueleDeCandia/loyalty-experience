@@ -15,6 +15,8 @@ import { ObjectInspector } from './components/ObjectInspector';
 import { HuntHud } from './components/HuntHud';
 import { TreasureStartModal } from './components/TreasureStartModal';
 import { TreasureResultModal } from './components/TreasureResultModal';
+import { captureIncomingReferral } from './game/treasureCatalog';
+import { ScarcityBanner } from './components/ScarcityBanner';
 import { TreasureId } from './game/treasureCatalog';
 import { useTreasureHunt } from './game/useTreasureHunt';
 import { Sparkles, MousePointer, Info } from 'lucide-react';
@@ -220,13 +222,16 @@ export function App() {
     }
   }, [hunt.phase, hunt.result]);
 
-  // Viral loop: il link condiviso (?caccia=1) atterra direttamente sul mini-game.
+  // Viral loop: il link condiviso (?caccia=1&ref=REF-XXXXX) atterra sul mini-game
+  // e viene attribuito a chi lo ha condiviso.
   const [pendingDeepLink, setPendingDeepLink] = useState<boolean>(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    captureIncomingReferral(params.get('ref'));
     if (params.get('caccia') !== '1') return;
     setPendingDeepLink(true);
     params.delete('caccia');
+    params.delete('ref');
     const query = params.toString();
     window.history.replaceState(
       {},
@@ -459,6 +464,8 @@ export function App() {
             muted={hunt.muted}
             feed={hunt.feed}
             hint={huntHint}
+            comboEvent={hunt.comboEvent}
+            comboBonus={hunt.comboBonus}
             onOpenStart={handleOpenStartModal}
             onReplay={handleReplayHunt}
             onAbandon={handleAbandonHunt}
@@ -467,6 +474,13 @@ export function App() {
           />
         }
       />
+
+      {/* Banner scarsità pass Dante Festival (FOMO) */}
+      {hunt.phase !== 'completed' && (
+        <div className="pointer-events-none absolute top-20 right-3 z-20 max-w-[calc(100vw-1.5rem)] sm:right-4">
+          <ScarcityBanner remaining={hunt.passesLeft} onOpenSheet={handleOpenStartModal} />
+        </div>
+      )}
 
       {/* Floating Interaction Hint */}
       <div className="absolute top-20 left-4 z-10 pointer-events-none hidden sm:flex items-center gap-2 bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-full px-3 py-1 text-[11px] text-slate-300 shadow-md">

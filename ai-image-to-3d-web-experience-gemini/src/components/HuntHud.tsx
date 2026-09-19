@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Compass, Play, RotateCcw, Scroll, Volume2, VolumeX, X, Eye, Coins, Gem } from 'lucide-react';
+import { Compass, Flame, Play, RotateCcw, Scroll, Volume2, VolumeX, X, Eye, Coins, Gem } from 'lucide-react';
 import { HUNT_DURATION_MS } from '../game/treasureCatalog';
-import { HuntFeedEntry, HuntPhase, HuntResult, StoredProgress } from '../game/useTreasureHunt';
+import {
+  HuntComboEvent,
+  HuntFeedEntry,
+  HuntPhase,
+  HuntResult,
+  StoredProgress,
+} from '../game/useTreasureHunt';
 import { playHuntTick } from '../game/huntAudio';
 import { cn } from '../utils/cn';
 import { VillageCrest } from './fantasy/Ornaments';
@@ -19,6 +25,10 @@ interface HuntHudProps {
   feed?: HuntFeedEntry[];
   /** Indizio sull'area in cui cercare (bussola del borgo). */
   hint?: string | null;
+  /** Ultima combo gastronomica attivata: feedback "Combo Tipica!". */
+  comboEvent?: HuntComboEvent | null;
+  /** Bonus combo accumulato nella sessione. */
+  comboBonus?: number;
   onOpenStart: () => void;
   onReplay: () => void;
   onAbandon: () => void;
@@ -162,6 +172,37 @@ const HuntFeed: React.FC<{ feed: HuntFeedEntry[] }> = ({ feed }) => {
   );
 };
 
+const COMBO_SPARKS = [0, 45, 90, 135, 180, 225, 270, 315];
+
+/** Feedback particellare della combo gastronomica. */
+const HuntCombo: React.FC<{ event: HuntComboEvent | null }> = ({ event }) => {
+  if (!event) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[36%] z-40 flex justify-center">
+      <div className="hunt-combo relative">
+        <div className="fantasy-panel flex items-center gap-2 rounded-full px-4 py-2 shadow-xl shadow-[#2b1c06]/30">
+          <Flame className="h-4 w-4 text-[#a9512f]" aria-hidden />
+          <span className="fantasy-heading text-[15px] font-bold text-[#3a2c1c]">
+            {event.label}
+          </span>
+          <span className="font-mono text-[13px] font-extrabold text-[#2f7d5c]">
+            +{event.bonus} pt
+          </span>
+        </div>
+        {COMBO_SPARKS.map(angle => (
+          <span
+            key={angle}
+            className="hunt-spark"
+            style={{ transform: `rotate(${angle}deg)` }}
+            aria-hidden
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
+
 /** Indizio della bussola: dove cercare la prossima figurina. */
 const HuntHint: React.FC<{ hint: string }> = ({ hint }) => (
   <div className="fantasy-panel pointer-events-none absolute top-[4.5rem] right-3 z-30 hidden max-w-[13rem] items-center gap-2 rounded-2xl px-3 py-2 sm:flex">
@@ -184,6 +225,8 @@ export const HuntHud: React.FC<HuntHudProps> = ({
   muted,
   feed = [],
   hint = null,
+  comboEvent = null,
+  comboBonus = 0,
   onOpenStart,
   onReplay,
   onAbandon,
@@ -258,6 +301,15 @@ export const HuntHud: React.FC<HuntHudProps> = ({
               </div>
             </div>
 
+            {comboBonus > 0 && (
+              <div className="hidden items-center gap-1 rounded-full border border-[#2f7d5c]/40 bg-[#f2fbf5] px-2 py-1 sm:flex">
+                <Flame className="h-3.5 w-3.5 text-[#a9512f]" aria-hidden />
+                <span className="font-mono text-[11px] font-extrabold text-[#2f7d5c]">
+                  +{comboBonus}
+                </span>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={onToggleMute}
@@ -320,6 +372,8 @@ export const HuntHud: React.FC<HuntHudProps> = ({
           {hint && <HuntHint hint={hint} />}
         </>
       )}
+
+      {phase !== 'idle' && <HuntCombo event={comboEvent} />}
     </>
   );
 };

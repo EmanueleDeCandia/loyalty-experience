@@ -11,11 +11,13 @@ con un mini-game di caccia ai tesori integrato nella scena 3D.
 | Figurine | 9: `caffè`, `scarpe`, `vino`, `pizza`, `insalata`, `lasagne`, `pollo`, `patate`, `bistecca` |
 | Punti | valore intero casuale 5–10, assegnato una sola volta all'avvio della sessione |
 | Tap | ogni figurina è cliccabile **una sola volta** per sessione (poi resta visibile in stato disabilitato) |
-| `< 20 pt` | Nessun premio (messaggio di riprova) |
-| `20–29 pt` | Medaglia d'Argento |
-| `30–39 pt` | Medaglia d'Oro |
-| `40–49 pt` | Medaglia di Platino + **Pass x2 "Dante Festival"** con codice voucher |
-| `≥ 50 pt` | Medaglia di Diamante + **Pass x2 "Dante Festival"** con codice voucher |
+| Combo | due figurine coerenti toccate di fila (pizza+vino, bistecca+patate, …) → **+3 pt** immediati con feedback particellare "Combo Tipica!" |
+| Voucher Zero-Loss | **sempre** un `Voucher 10€ Aperitivo Cena Dante Festival` con QR univoco, valido in 2 persone, claim 48 h |
+| `< 20 pt` | Nessuna medaglia — resta il voucher Aperitivo Cena |
+| `20–29 pt` | Medaglia d'Argento + Medaglia Digitale e Voucher Aperitivo Cena |
+| `30–39 pt` | Medaglia d'Oro + Medaglia Digitale e Voucher Aperitivo Cena |
+| `40–49 pt` | Medaglia di Platino + **Pass x2 Dante Festival (Standard)** |
+| `≥ 50 pt` | Medaglia di Diamante + **Pass x2 Dante Festival VIP + Backstage** |
 
 ### Come funziona
 
@@ -33,24 +35,39 @@ con un mini-game di caccia ai tesori integrato nella scena 3D.
   tocco: salto, giro, scintille dorate e dissolvenza verso l'aspetto "già trovato".
 - **Bussola del borgo** — durante la caccia un indizio suggerisce l'area in cui cercare una figurina
   ancora da trovare, così la difficoltà resta alta ma non frustrante.
-- **Feedback** — avviso "+X pt · nome" nell'HUD, micro-vibrazioni (`navigator.vibrate`) ed effetti
-  sonori sintetizzati via WebAudio (`src/game/huntAudio.ts`, senza asset).
+- **Feedback** — avviso "+X pt · nome" nell'HUD, badge combo con bonus accumulato, particelle
+  dorate "Combo Tipica!", micro-vibrazioni (`navigator.vibrate`) ed effetti sonori sintetizzati via
+  WebAudio (`src/game/huntAudio.ts`, senza asset).
 - **Scheda dell'Esploratore** — interfaccia in stile fantasy del borgo (pergamena, cornici dorate,
   fregi, sigilli di cera, stemma araldico): regole, figurine da trovare, scala delle medaglie e
   taccuino con rango, record e voucher vinti.
-- **Resoconto finale** — medaglia SVG animata per tier, punteggio, figurine raccolte, tempo impiegato,
-  badge premio con sigillo di cera e codice voucher (copiabile), pulsante **Condividi su WhatsApp**.
-- **Viral loop** — il messaggio condiviso è pre-compilato con `encodeURIComponent` e link
-  `https://api.whatsapp.com/send?text=…`; il link dell'app include `?caccia=1`, così chi lo apre
-  atterra direttamente sulla schermata di avvio della caccia.
-- **Persistenza locale** — record personale e codici voucher vinti sono salvati in `localStorage`.
+- **Resoconto finale** — medaglia SVG animata per tier, punteggio (base + bonus combo), figurine
+  raccolte, badge premio con sigillo di cera, **biglietti voucher** con QR di riscatto, scadenza
+  dinamica e codice copiabile.
+- **Riscatto sullo store** — ogni voucher è un **QR generato a runtime** (`qrcode`) che codifica l'URL
+  dell'e-commerce ufficiale con querystring pre-applicata
+  (`https://store.dantefestival.it/checkout?voucher=DANTE-…&tier=…&ref=…`): il codice promozionale
+  arriva già applicato al carrello. Override dell'endpoint con `VITE_DANTE_STORE_URL`.
+- **Viral loop** — messaggio WhatsApp pre-compilato (`https://api.whatsapp.com/send?text=…`) con
+  medaglia, voucher Aperitivo Cena per 2 persone e link `?caccia=1&ref=REF-XXXXX`; chi apre il link
+  atterra direttamente sulla caccia e l'attribuzione del referral viene salvata in locale.
+  La **share card** (badge, punteggio, titolo utente, QR/referral) è disegnata lato client su canvas
+  e condivisa come immagine (Web Share API) o scaricata in PNG.
+- **Scarsità dinamica (FOMO)** — banner sempre visibile con i pass Dante Festival ancora disponibili
+  nella giornata (`DAILY_PASS_ALLOWANCE = 20`, consumati in doppia copia da Platino/Diamante).
+- **Persistenza locale** — record personale, codici voucher vinti, referral id e pass residui sono
+  salvati in `localStorage`.
 
 ### Messaggi di condivisione (da specifica)
 
-- Platino/Diamante:
-  `Ho conquistato la Medaglia di {TIER} ({PUNTI} pt) e vinto 2 biglietti per il Dante Festival nel borgo sospeso! Prova a battermi: {APP_LINK}`
-- Argento/Oro:
-  `Ho sbloccato la Medaglia di {TIER} con {PUNTI} pt esplorando il borgo sospeso! Riuscirai a vincere il pass per il Dante Festival? Gioca qui: {APP_LINK}`
+```
+Ho appena esplorato il borgo sospeso e conquistato la Medaglia di {TIER}! 🎭
+Ho sbloccato un Voucher di 10€ per l'Aperitivo Cena del Dante Festival valido per due persone
+(e se fai Platino o Diamante vinci pure i biglietti!). Sfida il borgo qui: {APP_REFERRAL_LINK}
+```
+
+Per i punteggi senza medaglia il catalogo usa la variante `… e portato a casa {PUNTI} pt!`. Il
+messaggio è codificato con `encodeURIComponent` nell'URL `https://api.whatsapp.com/send?text=…`.
 
 ## Struttura
 
@@ -62,13 +79,17 @@ src/
       TreasureBuilder.ts          # modelli 3D delle 9 figurine + posizionamento nel borgo
       IslandBuilder|VillageBuilder|FoliageBuilder|WaterBuilder|AtmosphereBuilder.ts
   game/
-    treasureCatalog.ts            # catalogo figurine, punti, tier, voucher, messaggi WhatsApp
-    useTreasureHunt.ts            # stato sessione (idle|active|completed), timer, punteggio, record
+    treasureCatalog.ts            # fonte unica: figurine, punti, combo, tier, voucher, store, referral, condivisione, scarsità
+    useTreasureHunt.ts            # stato sessione (idle|active|completed), timer, combo, punteggio, voucher, record
     huntAudio.ts                  # SFX WebAudio + vibrazioni
+    qrCode.ts                     # wrapper runtime del generatore QR (fallback sicuro)
+    shareCard.ts                  # share card canvas (medaglia, punteggio, titolo, QR referral)
   components/
-    HuntHud.tsx                   # HUD pergamena: clessidra, punteggio, feedback, bussola, mute
-    TreasureStartModal.tsx        # "Scheda dell'Esploratore": regole, figurine, medaglie, taccuino
-    TreasureResultModal.tsx       # resoconto finale: medaglia, voucher, condivisione WhatsApp
+    HuntHud.tsx                   # HUD pergamena: clessidra, punteggio, feedback, combo, bussola, mute
+    TreasureStartModal.tsx        # "Scheda dell'Esploratore": Zero-Loss, regole, combo, medaglie, taccuino
+    TreasureResultModal.tsx       # resoconto finale: medaglia, voucher con QR, share card, CTA store + WhatsApp
+    VoucherTicket.tsx             # biglietto voucher: QR, codice copiabile, countdown 48 h, CTA store
+    ScarcityBanner.tsx            # banner FOMO dei pass Dante Festival disponibili oggi
     MedalBadge.tsx                # badge SVG delle medaglie (argento/oro/platino/diamante)
     fantasy/Ornaments.tsx         # cornici, fregi, sigilli di cera e stemma del borgo
 ```
@@ -84,5 +105,6 @@ npm run typecheck    # tsc --noEmit
 npm run verify:hunt  # test headless (jsdom) del flusso di gioco
 ```
 
-`npm run verify:hunt` esegue l'intera partita senza browser: avvio timer, reveal singolo,
-chiusura sessione, soglie medaglia, voucher Dante Festival, payload WhatsApp e "Rigioca".
+`npm run verify:hunt` esegue l'intera partita senza browser: countdown 20 s, reveal singolo, combo
+gastronomiche con bonus, soglie medaglia, voucher Zero-Loss con QR e scadenza 48 h, URL di riscatto
+sullo store, copy WhatsApp, consumo dei pass giornalieri e "Rigioca".

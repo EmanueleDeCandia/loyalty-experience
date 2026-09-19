@@ -103,6 +103,13 @@ export function playTreasureReveal(index: number, points: number): void {
   });
 }
 
+/** Combo gastronomica: piccolo arpeggio brillante "a due voci". */
+export function playCombo(): void {
+  playTone({ frequency: 880, duration: 0.12, type: 'triangle', gain: 0.07 });
+  playTone({ frequency: 1174.66, duration: 0.14, type: 'triangle', gain: 0.06, delay: 0.08 });
+  playTone({ frequency: 1567.98, duration: 0.2, type: 'sine', gain: 0.05, delay: 0.16 });
+}
+
 /** Tick di countdown negli ultimi secondi. */
 export function playHuntTick(secondsLeft: number): void {
   playTone({

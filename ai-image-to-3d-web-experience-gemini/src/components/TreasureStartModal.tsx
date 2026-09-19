@@ -3,17 +3,20 @@ import {
   Coins,
   Compass,
   Crown,
+  Flame,
+  Hourglass,
+  MapPin,
+  Play,
+  QrCode,
   Scroll,
+  ShoppingBag,
   Sparkles,
   Sun,
   Ticket,
+  Users,
   X,
-  Play,
-  Hourglass,
-  Award,
-  MapPin,
 } from 'lucide-react';
-import { HUNT_DURATION_MS, NO_TIER, TIERS } from '../game/treasureCatalog';
+import { HUNT_DURATION_MS, NO_TIER, TIERS, VOUCHER_VALIDITY_HOURS } from '../game/treasureCatalog';
 import { HuntItem, StoredProgress } from '../game/useTreasureHunt';
 import { MedalBadge } from './MedalBadge';
 import { CornerFleuron, FlourishDivider, VillageCrest, WaxSeal } from './fantasy/Ornaments';
@@ -111,7 +114,7 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
             <div className="fantasy-plaque rounded-2xl px-3 py-2">
               <Ticket className="mb-1 h-4 w-4 text-[#2f7d5c]" aria-hidden />
               <div className="fantasy-label text-[9px] font-bold text-[#8a6a12]">Premio top</div>
-              <div className="text-[13px] font-extrabold text-[#3a2c1c]">Pass x2 Dante</div>
+              <div className="text-[13px] font-extrabold text-[#3a2c1c]">Pass x2 Dante VIP</div>
             </div>
           </div>
         </div>
@@ -133,6 +136,13 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
                 <span>
                   Ogni figurina è <strong>cliccabile una sola volta</strong>: al tocco si scopre il
                   suo valore e resta nel borgo in versione dorata.
+                </span>
+              </li>
+              <li className="flex gap-2">
+                <Flame className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#a9512f]" aria-hidden />
+                <span>
+                  <strong>Combo gastronomiche</strong>: due figurine coerenti toccate di fila (es.
+                  pizza + vino, bistecca + patate) valgono <strong>+3 pt immediati</strong>.
                 </span>
               </li>
               <li className="flex gap-2">
@@ -174,6 +184,30 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
             </p>
           </section>
 
+          {/* Zero-Loss: voucher per tutti */}
+          <section>
+            <div className="rounded-3xl border-2 border-dashed border-[#2f7d5c]/55 bg-gradient-to-br from-[#f2fbf5]/95 to-[#dcefe2]/70 px-4 py-3">
+              <div className="flex items-start gap-3">
+                <QrCode className="mt-0.5 h-5 w-5 shrink-0 text-[#2f7d5c]" aria-hidden />
+                <div className="min-w-0">
+                  <div className="fantasy-label text-[9.5px] font-bold text-[#2f7d5c]">
+                    Zero-Loss Strategy
+                  </div>
+                  <div className="fantasy-heading text-[14.5px] font-bold leading-snug text-[#3a2c1c]">
+                    Voucher 10€ Aperitivo Cena Dante Festival per tutti
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-[#4a3a26]">
+                    Qualunque sia il punteggio ricevi un <strong>QR code personale</strong> con
+                    voucher da 10€ per l'esclusivo format <em>Aperitivo Cena</em>, valido
+                    presentandosi in <strong>2 persone</strong>. Il claim resta attivo{' '}
+                    <strong>{VOUCHER_VALIDITY_HOURS} ore</strong> e si finalizza sullo store
+                    ufficiale del festival.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Scala dei premi */}
           <section>
             <FlourishDivider label="Medaglie e premi" />
@@ -188,29 +222,31 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
                     <div className="fantasy-heading text-[13px] font-bold text-[#3a2c1c]">
                       {tier.title}
                     </div>
-                    <div className="text-[11px] text-[#6b5940]">
+                    <div className="text-[11px] font-semibold text-[#6b5940]">
                       {tier.max === null
                         ? `${tier.min} pt o più`
                         : tier.id === 'none'
                           ? `meno di ${tier.max + 1} pt`
                           : `${tier.min} – ${tier.max} pt`}
                     </div>
+                    <div className="mt-0.5 text-[10.5px] text-[#8a6a12]">{tier.prize}</div>
                   </div>
                   {tier.givesFestivalPass ? (
                     <span className="fantasy-ribbon flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[9.5px] font-bold">
                       <Crown className="h-3 w-3" aria-hidden />
-                      Pass x2 Dante Festival
-                    </span>
-                  ) : tier.id === 'none' ? (
-                    <span className="fantasy-label shrink-0 text-[9.5px] font-bold text-[#8b8172]">
-                      Riprova
+                      {tier.isVip ? 'VIP + Backstage' : 'Pass x2'}
                     </span>
                   ) : (
-                    <Award className="h-4 w-4 shrink-0 text-[#8a6a12]/70" aria-hidden />
+                    <Users className="h-4 w-4 shrink-0 text-[#2f7d5c]/70" aria-hidden />
                   )}
                 </div>
               ))}
             </div>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[#6b5940]">
+              <ShoppingBag className="h-3.5 w-3.5 shrink-0 text-[#8a6a12]" aria-hidden />
+              Tutti i premi si riscattano sullo store e-commerce ufficiale del Dante Festival: il
+              codice voucher arriva già applicato al carrello.
+            </p>
           </section>
 
           {/* Progressi dell'esploratore */}
@@ -239,7 +275,11 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
                   </strong>
                 </p>
                 <p className="text-[11.5px]">
-                  Pass Dante Festival nel taccuino:{' '}
+                  Codice invito:{' '}
+                  <strong className="font-mono">{record.referralId || '—'}</strong>
+                </p>
+                <p className="text-[11.5px]">
+                  Voucher nel taccuino:{' '}
                   <strong>{totalVouchers}</strong>
                   {totalVouchers > 0 && (
                     <span className="ml-1 font-mono text-[10.5px] text-[#2f7d5c]">
