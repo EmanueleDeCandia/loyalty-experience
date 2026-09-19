@@ -234,6 +234,12 @@ assert.ok(text().includes('Condividi su WhatsApp'), 'CTA secondaria presente');
 assert.ok(text().includes('Rigioca'), 'pulsante Rigioca presente');
 const primaryHref = container.querySelector(`a[href="${result.redeemUrl}"]`);
 assert.ok(primaryHref, 'CTA primaria collegata allo store con voucher e tier');
+const ctas = [...container.querySelectorAll(`a[href="${result.redeemUrl}"]`)];
+assert.ok(ctas.length >= 2, 'QR del voucher e CTA aprono entrambi lo store con il codice applicato');
+assert.ok(
+  ctas[0].getAttribute('target') === '_blank',
+  'il link del voucher si apre in una nuova scheda'
+);
 
 // --------------------------------------------- 7. Payload WhatsApp secondo specifica
 const shareMessage = apiRef.current.shareMessage();

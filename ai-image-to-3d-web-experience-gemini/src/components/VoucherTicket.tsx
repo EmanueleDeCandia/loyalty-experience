@@ -127,7 +127,17 @@ export const VoucherTicket: React.FC<VoucherTicketProps> = ({ issue, tierLabel, 
       </div>
 
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <QrCodeImage payload={issue.qrPayload} fallbackLabel={issue.code} size={132} />
+        {/* Cliccare il voucher (o scansionarne il QR) porta allo store con il codice applicato. */}
+        <a
+          href={issue.redeemUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Apri lo store ufficiale con il voucher applicato"
+          aria-label={`Apri lo store ufficiale con il voucher ${issue.code} già applicato al carrello`}
+          className="group/qr shrink-0 transition hover:brightness-105"
+        >
+          <QrCodeImage payload={issue.qrPayload} fallbackLabel={issue.code} size={132} />
+        </a>
 
         <div className="min-w-0 flex-1">
           <div className="fantasy-label text-[9px] font-bold text-[#8a6a12]">

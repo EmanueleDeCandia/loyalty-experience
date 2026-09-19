@@ -433,7 +433,7 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
   );
 };
 
-/** Import differito per evitare dipendenze circolari nel bundle. */
+/** Link di invito: costruito sull'URL corrente, con fallback per ambienti headless. */
 function buildReferralLinkSafe(referralId: string): string {
   if (typeof window === 'undefined' || !window.location) {
     return `https://loyalty-experience.app/?caccia=1&ref=${referralId}`;
