@@ -5,21 +5,19 @@ import {
   LightingMode,
   CameraBookmark,
   ImageAnalysisResult,
-  SelectedObjectInfo,
 } from './types/world';
 import { Header } from './components/Header';
 import { ControlsDock } from './components/ControlsDock';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { PipelineModal } from './components/PipelineModal';
-import { ObjectInspector } from './components/ObjectInspector';
 import { HuntHud } from './components/HuntHud';
 import { TreasureStartModal } from './components/TreasureStartModal';
 import { TreasureResultModal } from './components/TreasureResultModal';
 import { captureIncomingReferral } from './game/treasureCatalog';
-import { ScarcityBanner } from './components/ScarcityBanner';
 import { TreasureId } from './game/treasureCatalog';
 import { useTreasureHunt } from './game/useTreasureHunt';
-import { Sparkles, MousePointer, Info } from 'lucide-react';
+import { trackEvent } from './game/api';
+import { Sparkles, Info } from 'lucide-react';
 
 const PRESETS = {
   village: {
@@ -59,13 +57,6 @@ export function App() {
   const [loadingPercent, setLoadingPercent] = useState<number>(10);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Performance Stats
-  const [stats, setStats] = useState<{ fps: number; drawCalls: number; triangles: number }>({
-    fps: 60,
-    drawCalls: 45,
-    triangles: 18400,
-  });
-
   // Camera & Lighting Controls
   const [currentBookmark, setCurrentBookmark] = useState<CameraBookmark>('isometric');
   const [lightingMode, setLightingMode] = useState<LightingMode>('day');
@@ -84,7 +75,6 @@ export function App() {
   // Interactive Tools
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [isPipelineOpen, setIsPipelineOpen] = useState<boolean>(false);
-  const [selectedObject, setSelectedObject] = useState<SelectedObjectInfo | null>(null);
   const [analysisResult, setAnalysisResult] = useState<ImageAnalysisResult | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -94,6 +84,10 @@ export function App() {
       setToastMessage(prev => (prev === msg ? null : prev));
     }, 3500);
   };
+
+  useEffect(() => {
+    if (hunt.error) showToast(hunt.error);
+  }, [hunt.error]);
 
   // Initialize Explorable 3D World
   useEffect(() => {
@@ -116,9 +110,6 @@ export function App() {
       tiltShiftFocus,
       tiltShiftBlur,
       autoRotate,
-      onObjectSelect: info => {
-        setSelectedObject(info);
-      },
       onTreasureHit: id => {
         markActivity();
         revealRef.current(id as TreasureId);
@@ -128,19 +119,16 @@ export function App() {
 
     worldRef.current = world;
 
-    // Periodically sync stats
-    const statsInterval = setInterval(() => {
+    // Recupera l'analisi quando la ricostruzione è pronta.
+    const analysisInterval = setInterval(() => {
       if (worldRef.current) {
-        setStats(worldRef.current.getStats());
         const analysis = worldRef.current.getImageAnalysis();
-        if (analysis && !analysisResult) {
-          setAnalysisResult(analysis);
-        }
+        if (analysis && !analysisResult) setAnalysisResult(analysis);
       }
     }, 1000);
 
     return () => {
-      clearInterval(statsInterval);
+      clearInterval(analysisInterval);
       world.dispose();
       worldRef.current = null;
     };
@@ -250,6 +238,7 @@ export function App() {
 
   const handleOpenStartModal = useCallback(() => {
     markActivity();
+    trackEvent('start_modal_opened');
     setIsComparing(false);
     setIsPipelineOpen(false);
     setIsStartModalOpen(true);
@@ -260,7 +249,6 @@ export function App() {
     setIsResultModalOpen(false);
     setIsComparing(false);
     setIsPipelineOpen(false);
-    setSelectedObject(null);
     hunt.start();
   }, [hunt.start]);
 
@@ -423,12 +411,6 @@ export function App() {
     }
   };
 
-  // Focus object
-  const handleFocusObject = () => {
-    // Zoom in on village center
-    handleSelectBookmark('village');
-  };
-
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-['Plus_Jakarta_Sans',sans-serif] select-none">
       {/* 3D WebGL Canvas */}
@@ -437,28 +419,31 @@ export function App() {
         className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing outline-none"
       />
 
-      {/* Top Header */}
-      <Header
-        fps={stats.fps}
-        triangles={stats.triangles}
-        drawCalls={stats.drawCalls}
-        activePreset={activePreset}
-        onSelectPreset={handleSelectPreset}
-        onUploadImage={handleUploadImage}
-        onToggleCompare={() => setIsComparing(!isComparing)}
-        isComparing={isComparing}
-        onOpenPipeline={() => setIsPipelineOpen(true)}
-        onTakeSnapshot={handleTakeSnapshot}
-        onExportGLTF={handleExportGLTF}
-        onResetPOV={handleResetPOV}
-        hideStats={hunt.phase === 'active'}
-        huntSlot={
+      {/* Strumenti immagine: separati dal gioco e nascosti durante il confronto. */}
+      {!isComparing && (
+        <Header
+          activePreset={activePreset}
+          onSelectPreset={handleSelectPreset}
+          onUploadImage={handleUploadImage}
+          onToggleCompare={() => setIsComparing(true)}
+          isComparing={isComparing}
+          onOpenPipeline={() => setIsPipelineOpen(true)}
+          onTakeSnapshot={handleTakeSnapshot}
+          onExportGLTF={handleExportGLTF}
+          onResetPOV={handleResetPOV}
+        />
+      )}
+
+      {/* Comandi di gioco: pannello laterale indipendente dagli strumenti 3D. */}
+      {!isComparing && (
+        <aside className="pointer-events-none absolute right-3 top-[4.5rem] z-30 max-w-[calc(100vw-1.5rem)] lg:top-3 lg:max-w-[24rem]">
           <HuntHud
             phase={hunt.phase}
             score={hunt.score}
             foundCount={hunt.foundCount}
             totalCount={hunt.totalCount}
             deadline={hunt.deadline}
+            durationMs={hunt.durationMs}
             result={hunt.result}
             record={hunt.record}
             muted={hunt.muted}
@@ -472,25 +457,8 @@ export function App() {
             onToggleMute={hunt.toggleMute}
             onOpenResult={() => setIsResultModalOpen(true)}
           />
-        }
-      />
-
-      {/* Banner scarsità pass Dante Festival (FOMO) */}
-      {hunt.phase !== 'completed' && (
-        <div className="pointer-events-none absolute top-20 right-3 z-20 max-w-[calc(100vw-1.5rem)] sm:right-4">
-          <ScarcityBanner remaining={hunt.passesLeft} onOpenSheet={handleOpenStartModal} />
-        </div>
+        </aside>
       )}
-
-      {/* Floating Interaction Hint */}
-      <div className="absolute top-20 left-4 z-10 pointer-events-none hidden sm:flex items-center gap-2 bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-full px-3 py-1 text-[11px] text-slate-300 shadow-md">
-        <MousePointer className="w-3.5 h-3.5 text-cyan-400" />
-        <span>
-          {hunt.phase === 'active'
-            ? 'Caccia ai Tesori: cerca le figurine nascoste tra case e alberi · toccale per raccoglierle'
-            : 'Orbit: Left-drag · Zoom: Scroll · Pan: Right-drag · Click objects to inspect'}
-        </span>
-      </div>
 
       {/* Comparison Split Slider Overlay */}
       {isComparing && (
@@ -501,15 +469,8 @@ export function App() {
         />
       )}
 
-      {/* Object Inspection Popup */}
-      <ObjectInspector
-        info={selectedObject}
-        onClose={() => setSelectedObject(null)}
-        onFocus={handleFocusObject}
-      />
-
-      {/* Bottom Controls Dock */}
-      <ControlsDock
+      {/* Bottom Controls Dock: solo manipolazione della scena. */}
+      {!isComparing && <ControlsDock
         currentBookmark={currentBookmark}
         onSelectBookmark={handleSelectBookmark}
         lightingMode={lightingMode}
@@ -528,7 +489,7 @@ export function App() {
         onChangeCloudSpeed={handleChangeCloudSpeed}
         waterSpeed={waterSpeed}
         onChangeWaterSpeed={handleChangeWaterSpeed}
-      />
+      />}
 
       {/* Zero-Shot Pipeline Modal */}
       <PipelineModal
@@ -553,6 +514,7 @@ export function App() {
         items={hunt.items}
         onReplay={handleReplayHunt}
         onClose={() => setIsResultModalOpen(false)}
+        onClaim={hunt.claimVouchers}
       />
 
       {/* Loading Overlay */}

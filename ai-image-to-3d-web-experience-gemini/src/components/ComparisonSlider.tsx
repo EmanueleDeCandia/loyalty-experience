@@ -23,6 +23,14 @@ export const ComparisonSlider: React.FC<ComparisonSliderProps> = ({
     onAlignCamera();
   }, [onAlignCamera]);
 
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+
   const handlePointerDown = () => {
     setIsDragging(true);
   };
@@ -59,10 +67,20 @@ export const ComparisonSlider: React.FC<ComparisonSliderProps> = ({
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 z-15 pointer-events-none select-none overflow-hidden"
+      className="pointer-events-none absolute inset-0 z-40 select-none overflow-hidden"
     >
-      {/* Top Banner Toolbar */}
-      <div className="absolute top-20 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-cyan-500/40 rounded-full px-4 py-1.5 shadow-xl text-xs text-white">
+      {/* Uscita sempre visibile, indipendente dagli altri pannelli. */}
+      <button
+        onClick={onClose}
+        className="pointer-events-auto absolute right-3 top-3 z-50 flex items-center gap-1.5 rounded-xl border border-cyan-400/50 bg-slate-950/95 px-3 py-2 text-xs font-bold text-white shadow-xl transition hover:bg-slate-800"
+        title="Esci dal confronto (Esc)"
+      >
+        <X className="h-4 w-4 text-cyan-300" />
+        <span>Esci dal confronto</span>
+      </button>
+
+      {/* Toolbar esclusiva della modalità confronto. */}
+      <div className="pointer-events-auto absolute left-3 top-3 z-40 flex max-w-[calc(100vw-12rem)] items-center gap-2 overflow-x-auto rounded-2xl border border-cyan-500/40 bg-slate-900/95 px-3 py-1.5 text-xs text-white shadow-xl backdrop-blur-md [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <span className="font-semibold text-cyan-400 flex items-center gap-1.5">
           <SplitSquareVertical className="w-4 h-4" />
           <span>2D Reference vs 3D Diorama</span>
@@ -111,13 +129,6 @@ export const ComparisonSlider: React.FC<ComparisonSliderProps> = ({
           Align POV
         </button>
 
-        <button
-          onClick={onClose}
-          className="p-1 rounded-full text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1"
-          title="Exit comparison mode"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
 
       {/* Mode A: Split Curtain */}

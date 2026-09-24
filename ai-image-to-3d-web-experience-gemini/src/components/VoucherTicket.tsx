@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Copy, QrCode, ShoppingBag, TimerReset } from 'lucide-react';
+import { Check, Copy, QrCode, ShoppingBag, TimerReset, WalletCards } from 'lucide-react';
 import { VOUCHER_VALIDITY_HOURS, VoucherIssue } from '../game/treasureCatalog';
 import { createQrDataUrl } from '../game/qrCode';
 
@@ -200,6 +200,13 @@ export const VoucherTicket: React.FC<VoucherTicketProps> = ({ issue, tierLabel, 
         <ShoppingBag className="h-4 w-4" aria-hidden />
         Riscatta sullo Store Ufficiale
       </a>
+
+      {(issue.walletLinks?.apple || issue.walletLinks?.google) && (
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {issue.walletLinks.apple && <a href={issue.walletLinks.apple} className="flex items-center justify-center gap-2 rounded-xl bg-black px-3 py-2 text-[11px] font-bold text-white"><WalletCards className="h-4 w-4" /> Aggiungi ad Apple Wallet</a>}
+          {issue.walletLinks.google && <a href={issue.walletLinks.google} className="flex items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-[11px] font-bold text-[#3a2c1c] ring-1 ring-[#b8862f]/30"><WalletCards className="h-4 w-4" /> Salva in Google Wallet</a>}
+        </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Compass, Flame, Play, RotateCcw, Scroll, Volume2, VolumeX, X, Eye, Coins, Gem } from 'lucide-react';
+import { ChevronDown, ChevronUp, Compass, Flame, Play, RotateCcw, Scroll, Volume2, VolumeX, X, Eye, Coins, Gem } from 'lucide-react';
 import { HUNT_DURATION_MS } from '../game/treasureCatalog';
 import {
   HuntComboEvent,
@@ -18,6 +18,7 @@ interface HuntHudProps {
   foundCount: number;
   totalCount: number;
   deadline: number | null;
+  durationMs?: number;
   result: HuntResult | null;
   record: StoredProgress;
   muted: boolean;
@@ -220,6 +221,7 @@ export const HuntHud: React.FC<HuntHudProps> = ({
   foundCount,
   totalCount,
   deadline,
+  durationMs = HUNT_DURATION_MS,
   result,
   record,
   muted,
@@ -234,10 +236,44 @@ export const HuntHud: React.FC<HuntHudProps> = ({
   onOpenResult,
 }) => {
   const progressRatio = Math.min(1, Math.max(0, foundCount / totalCount));
+  const [isCollapsed, setIsCollapsed] = useState(phase !== 'active');
+
+  useEffect(() => {
+    setIsCollapsed(phase !== 'active');
+  }, [phase]);
+
+  if (isCollapsed) {
+    const title = phase === 'completed' && result
+      ? `${result.score} pt · ${result.tier.medalName}`
+      : 'Caccia ai Tesori';
+    const subtitle = phase === 'completed'
+      ? `${result?.foundCount ?? foundCount}/${totalCount} figurine · apri il resoconto`
+      : record.bestScore > 0
+        ? `Record ${record.bestScore} pt · apri per giocare`
+        : 'Apri per giocare';
+
+    return (
+      <button
+        type="button"
+        onClick={() => setIsCollapsed(false)}
+        className="fantasy-panel pointer-events-auto flex max-w-[19rem] items-center gap-2 rounded-2xl px-2.5 py-2 text-left shadow-lg transition hover:brightness-[1.03]"
+        aria-expanded="false"
+      >
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-b from-[#f4e0a4] to-[#cfa436]">
+          {phase === 'completed' ? <Scroll className="h-4 w-4 text-[#4a3405]" /> : <VillageCrest size={20} />}
+        </span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="fantasy-heading block truncate text-[12.5px] font-bold text-[#3a2c1c]">{title}</span>
+          <span className="block truncate text-[9.5px] font-semibold text-[#6b5940]">{subtitle}</span>
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-[#8a6a12]" />
+      </button>
+    );
+  }
 
   return (
     <>
-      <div className="fantasy-panel pointer-events-auto flex items-center gap-3 rounded-2xl px-3 py-2 sm:px-4">
+      <div className="fantasy-panel pointer-events-auto flex max-w-full flex-wrap items-center gap-3 rounded-2xl px-3 py-2 sm:px-4">
         {phase === 'idle' && (
           <>
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-b from-[#a9d5ee] to-[#5a8fb5] shadow-inner shadow-[#1d3c52]/40">
@@ -249,7 +285,7 @@ export const HuntHud: React.FC<HuntHudProps> = ({
                   Caccia ai Tesori
                 </span>
                 <span className="fantasy-chip rounded-full px-1.5 py-0.5 text-[9px] font-bold text-[#7a5416]">
-                  20s
+                  20/30s
                 </span>
               </div>
               <p className="text-[11px] font-medium text-[#6b5940]">
@@ -275,7 +311,7 @@ export const HuntHud: React.FC<HuntHudProps> = ({
 
         {phase === 'active' && deadline !== null && (
           <>
-            <HuntTimer deadline={deadline} durationMs={HUNT_DURATION_MS} />
+            <HuntTimer deadline={deadline} durationMs={durationMs} />
 
             <div className="flex flex-col border-l border-[#b8862f]/30 pl-3 pr-1 leading-none">
               <span className="flex items-center gap-1 font-mono text-xl font-extrabold tabular-nums text-[#3a2c1c]">
@@ -364,6 +400,17 @@ export const HuntHud: React.FC<HuntHudProps> = ({
             </button>
           </>
         )}
+
+        <button
+          type="button"
+          onClick={() => setIsCollapsed(true)}
+          className="ml-auto rounded-xl p-1.5 text-[#8a6a12] transition hover:bg-[#b8862f]/15 hover:text-[#3a2c1c]"
+          title="Riduci la scheda del giocatore"
+          aria-label="Riduci la scheda del giocatore"
+          aria-expanded="true"
+        >
+          <ChevronUp className="h-4 w-4" />
+        </button>
       </div>
 
       {phase === 'active' && (

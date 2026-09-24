@@ -15,7 +15,9 @@ import {
 } from 'lucide-react';
 import { buildShareMessage, buildWhatsAppShareUrl } from '../game/treasureCatalog';
 import { HuntItem, HuntResult } from '../game/useTreasureHunt';
+import { LeadClaim, trackEvent } from '../game/api';
 import { ShareCardData, renderShareCard } from '../game/shareCard';
+import { LeadCapture } from './LeadCapture';
 import { MedalBadge } from './MedalBadge';
 import { VoucherTicket } from './VoucherTicket';
 import { CornerFleuron, FlourishDivider, WaxSeal } from './fantasy/Ornaments';
@@ -26,6 +28,7 @@ interface TreasureResultModalProps {
   items: HuntItem[];
   onReplay: () => void;
   onClose: () => void;
+  onClaim: (lead: LeadClaim) => Promise<void>;
 }
 
 const CONFETTI_COLORS = ['#cfa436', '#7fb2d6', '#2f7d5c', '#a9512f', '#fdf6e6'];
@@ -37,6 +40,7 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
   items,
   onReplay,
   onClose,
+  onClaim,
 }) => {
   const [copied, setCopied] = useState(false);
   const [shareCardUrl, setShareCardUrl] = useState<string | null>(null);
@@ -236,6 +240,15 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
           )}
         </div>
 
+        {!result.claimed && (
+          <LeadCapture
+            sessionId={result.sessionId}
+            variant={result.variant}
+            isPassWinner={celebratory}
+            onClaim={onClaim}
+          />
+        )}
+
         {/* Premio principale: pass Dante Festival */}
         {celebratory && passVoucher && (
           <div className="mx-5 mb-4 sm:mx-7">
@@ -320,8 +333,8 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
           </div>
         </div>
 
-        {/* Share card generata lato client */}
-        <div className="mx-5 mb-4 sm:mx-7">
+        {/* Share card generata lato client, disponibile solo dopo il lead gate. */}
+        {result.claimed && <div className="mx-5 mb-4 sm:mx-7">
           <FlourishDivider label="Card condivisibile" />
           {shareCardUrl ? (
             <div className="mt-3 space-y-2">
@@ -376,7 +389,7 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
               </button>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Anteprima messaggio WhatsApp */}
         <div className="mx-5 mb-4 rounded-2xl border border-[#5d94bb]/40 bg-gradient-to-b from-[#f2f9ff]/85 to-[#dcecf7]/70 px-3.5 py-3 sm:mx-7">
@@ -390,20 +403,24 @@ export const TreasureResultModal: React.FC<TreasureResultModalProps> = ({
         </div>
 
         <div className="sticky bottom-0 flex flex-col gap-2 rounded-b-[26px] border-t border-[#b8862f]/35 bg-[#f7edd6]/92 px-5 py-4 backdrop-blur-md sm:px-7">
-          <a
-            href={result.redeemUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="fantasy-cta flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-extrabold"
-          >
-            <ShoppingBag className="h-4 w-4" aria-hidden />
-            Riscatta sullo Store Ufficiale
-          </a>
+          {result.claimed && (
+            <a
+              href={result.redeemUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackEvent('store_clicked', { sessionId: result.sessionId, variant: result.variant })}
+              className="fantasy-cta flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-extrabold"
+            >
+              <ShoppingBag className="h-4 w-4" aria-hidden />
+              Riscatta sullo Store Ufficiale
+            </a>
+          )}
 
           <a
             href={shareUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => trackEvent('share_clicked', { sessionId: result.sessionId, variant: result.variant, properties: { channel: 'whatsapp' } })}
             className="flex items-center justify-center gap-2 rounded-2xl bg-[#25D366] px-4 py-3 text-sm font-extrabold text-white shadow-lg shadow-[#128c47]/35 transition hover:brightness-105 active:scale-[0.99]"
           >
             <MessageCircle className="h-4 w-4" aria-hidden />

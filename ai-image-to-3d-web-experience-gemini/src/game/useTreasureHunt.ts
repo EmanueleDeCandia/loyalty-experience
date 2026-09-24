@@ -7,492 +7,189 @@ import {
   VoucherIssue,
   buildReferralLink,
   buildShareMessage,
-  buildVoucherIssues,
   buildWhatsAppShareUrl,
-  consumeDailyPasses,
   ensureReferralId,
-  findCombo,
-  getDailyPassesLeft,
+  getIncomingReferral,
   getTier,
   rollTreasurePoints,
 } from './treasureCatalog';
-import {
-  playCombo,
-  playHuntComplete,
-  playHuntStart,
-  playTreasureReveal,
-  setHuntMuted,
-  vibrate,
-} from './huntAudio';
+import { LeadClaim, RemoteHunt, campaignApi, trackEvent } from './api';
+import { playCombo, playHuntComplete, playHuntStart, playTreasureReveal, setHuntMuted, vibrate } from './huntAudio';
 
 export type HuntPhase = 'idle' | 'active' | 'completed';
-
-export interface HuntItem {
-  id: TreasureId;
-  label: string;
-  emoji: string;
-  area: string;
-  /** Punti assegnati in modo univoco all'avvio della sessione (5-10). */
-  points: number;
-  revealed: boolean;
-}
-
-/** Combo gastronomica attivata da due tap consecutivi coerenti. */
-export interface HuntComboEvent {
-  key: number;
-  label: string;
-  bonus: number;
-  items: [TreasureId, TreasureId];
-}
-
+export interface HuntItem { id: TreasureId; label: string; emoji: string; area: string; points: number; revealed: boolean; }
+export interface HuntComboEvent { key: number; label: string; bonus: number; items: [TreasureId, TreasureId]; }
 export interface HuntResult {
-  /** Punteggio totale: somma delle figurine + bonus combo. */
+  sessionId: string;
   score: number;
-  /** Somma dei soli valori delle figurine. */
   baseScore: number;
   comboBonus: number;
   comboCount: number;
   foundCount: number;
   totalCount: number;
   tier: TierDefinition;
-  /** Voucher emessi: Aperitivo Cena sempre, pass/VIP per Platino e Diamante. */
   vouchers: VoucherIssue[];
-  /** URL di riscatto principale sullo store e-commerce. */
   redeemUrl: string;
   referralId: string;
   isNewRecord: boolean;
   elapsedMs: number;
+  variant: string;
+  claimed: boolean;
 }
-
 export interface StoredProgress {
-  bestScore: number;
-  bestTier: string;
-  bestTierId: string;
+  bestScore: number; bestTier: string; bestTierId: string;
   vouchers: { code: string; label: string; tier: string; expiresAt: number; date: string }[];
   referralId: string;
 }
-
-/** Evento di raccolta mostrato come feedback nell'HUD. */
-export interface HuntFeedEntry {
-  key: number;
-  label: string;
-  emoji: string;
-  points: number;
-  total: number;
-}
-
+export interface HuntFeedEntry { key: number; label: string; emoji: string; points: number; total: number; }
 export interface TreasureHuntApi {
-  phase: HuntPhase;
-  items: HuntItem[];
-  score: number;
-  baseScore: number;
-  comboBonus: number;
-  comboCount: number;
-  foundCount: number;
-  totalCount: number;
-  deadline: number | null;
-  result: HuntResult | null;
-  record: StoredProgress;
-  muted: boolean;
-  /** Contatore che identifica la sessione corrente (utile per resettare la scena 3D). */
-  sessionId: number;
-  /** Ultime figurine raccolte, per il feedback "+X pt" nell'HUD. */
-  feed: HuntFeedEntry[];
-  /** Ultima combo attivata, per il feedback particellare "Combo Tipica!". */
-  comboEvent: HuntComboEvent | null;
-  /** Pass Dante Festival ancora disponibili oggi (banner scarsità). */
-  passesLeft: number;
-  referralId: string;
-  start: () => void;
-  reveal: (id: TreasureId) => void;
-  /** Rigioca: azzera timer, punti e figurine riportando la sessione a "idle". */
-  replay: () => void;
-  /** Abbandona la caccia in corso e torna all'esplorazione libera. */
-  abandon: () => void;
-  toggleMute: () => void;
-  /** True quando il tap è stato rifiutato perché la figurina è già rivelata. */
-  isRevealed: (id: TreasureId) => boolean;
-  shareMessage: () => string;
-  shareUrl: () => string;
-  referralLink: () => string;
+  phase: HuntPhase; items: HuntItem[]; score: number; baseScore: number; comboBonus: number;
+  comboCount: number; foundCount: number; totalCount: number; deadline: number | null;
+  durationMs: number; result: HuntResult | null; record: StoredProgress; muted: boolean;
+  sessionId: number; feed: HuntFeedEntry[]; comboEvent: HuntComboEvent | null;
+  passesLeft: number; festivalStartAt: string | null; referralId: string; isStarting: boolean; error: string | null;
+  start: () => void; reveal: (id: TreasureId) => void; replay: () => void; abandon: () => void;
+  toggleMute: () => void; isRevealed: (id: TreasureId) => boolean;
+  claimVouchers: (lead: LeadClaim) => Promise<void>;
+  shareMessage: () => string; shareUrl: () => string; referralLink: () => string;
 }
 
-const STORAGE_KEY = 'borgo-sospeso:caccia-tesori:v2';
-
-const EMPTY_PROGRESS: StoredProgress = {
-  bestScore: 0,
-  bestTier: '',
-  bestTierId: 'none',
-  vouchers: [],
-  referralId: '',
-};
-
+const STORAGE_KEY = 'borgo-sospeso:caccia-tesori:v3';
+const EMPTY_PROGRESS: StoredProgress = { bestScore: 0, bestTier: '', bestTierId: 'none', vouchers: [], referralId: '' };
 function loadProgress(): StoredProgress {
   if (typeof window === 'undefined') return EMPTY_PROGRESS;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY_PROGRESS;
-    const parsed = JSON.parse(raw) as Partial<StoredProgress>;
-    return {
-      bestScore: typeof parsed.bestScore === 'number' ? parsed.bestScore : 0,
-      bestTier: parsed.bestTier ?? '',
-      bestTierId: parsed.bestTierId ?? 'none',
-      vouchers: Array.isArray(parsed.vouchers) ? parsed.vouchers : [],
-      referralId: parsed.referralId ?? '',
-    };
-  } catch {
-    return EMPTY_PROGRESS;
-  }
+  try { const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); return { ...EMPTY_PROGRESS, ...value, vouchers: Array.isArray(value.vouchers) ? value.vouchers : [] }; }
+  catch { return EMPTY_PROGRESS; }
 }
-
-function saveProgress(progress: StoredProgress): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
-  } catch {
-    /* storage non disponibile: la sessione resta comunque valida */
-  }
+function saveProgress(progress: StoredProgress) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(progress)); } catch { /* private mode */ } }
+export function createSessionItems(points?: Partial<Record<TreasureId, number>>): HuntItem[] {
+  return TREASURES.map(t => ({ ...t, points: points?.[t.id] ?? rollTreasurePoints(), revealed: false }));
 }
-
-/**
- * Crea le figurine della sessione: 9 item, ognuno con un valore casuale 5-10
- * assegnato una sola volta all'avvio.
- */
-export function createSessionItems(): HuntItem[] {
-  return TREASURES.map(treasure => ({
-    id: treasure.id,
-    label: treasure.label,
-    emoji: treasure.emoji,
-    area: treasure.area,
-    points: rollTreasurePoints(),
-    revealed: false,
-  }));
-}
-
 interface SessionState {
-  phase: HuntPhase;
-  items: HuntItem[];
-  deadline: number | null;
-  startedAt: number | null;
-  /** Ultimo tap, per riconoscere le combo gastronomiche. */
-  lastRevealed: TreasureId | null;
-  comboCount: number;
-  comboBonus: number;
+  phase: HuntPhase; items: HuntItem[]; deadline: number | null; startedAt: number | null;
+  comboCount: number; comboBonus: number; remote: RemoteHunt | null;
 }
-
-function createInitialState(): SessionState {
-  return {
-    phase: 'idle',
-    items: createSessionItems(),
-    deadline: null,
-    startedAt: null,
-    lastRevealed: null,
-    comboCount: 0,
-    comboBonus: 0,
-  };
-}
+const initialState = (): SessionState => ({ phase: 'idle', items: createSessionItems(), deadline: null, startedAt: null, comboCount: 0, comboBonus: 0, remote: null });
 
 export function useTreasureHunt(): TreasureHuntApi {
-  const stateRef = useRef<SessionState>(createInitialState());
-  const [sessionId, setSessionId] = useState(0);
-  const [, forceRender] = useReducer((counter: number) => counter + 1, 0);
+  const stateRef = useRef<SessionState>(initialState());
+  const [, render] = useReducer((n: number) => n + 1, 0);
   const [result, setResult] = useState<HuntResult | null>(null);
-  const [record, setRecord] = useState<StoredProgress>(() => loadProgress());
-  const [muted, setMuted] = useState<boolean>(false);
+  const [record, setRecord] = useState(loadProgress);
+  const [muted, setMuted] = useState(false);
   const [feed, setFeed] = useState<HuntFeedEntry[]>([]);
   const [comboEvent, setComboEvent] = useState<HuntComboEvent | null>(null);
-  const [passesLeft, setPassesLeft] = useState<number>(() => getDailyPassesLeft());
-  const [referralId, setReferralId] = useState<string>(() => {
-    const id = ensureReferralId();
-    const stored = loadProgress();
-    if (stored.referralId !== id) saveProgress({ ...stored, referralId: id });
-    return id;
-  });
-
+  const [passesLeft, setPassesLeft] = useState(-1);
+  const [festivalStartAt, setFestivalStartAt] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState(0);
+  const [isStarting, setIsStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const referralId = useMemo(() => ensureReferralId(), []);
   const timeoutRef = useRef<number | null>(null);
   const comboTimeoutRef = useRef<number | null>(null);
-  const revealCounterRef = useRef(0);
+  const revealCounter = useRef(0);
+  const collecting = useRef(new Set<TreasureId>());
+  const completing = useRef(false);
+  const starting = useRef<Promise<RemoteHunt> | null>(null);
 
-  useEffect(() => {
-    setHuntMuted(muted);
-  }, [muted]);
-
-  useEffect(() => {
-    setReferralId(current => current || ensureReferralId());
+  useEffect(() => { setHuntMuted(muted); }, [muted]);
+  useEffect(() => { campaignApi.get().then(c => { setPassesLeft(c.passesRemaining); setFestivalStartAt(c.festivalStartAt); }).catch(() => setError('Collegamento al servizio premi non disponibile.')); trackEvent('app_loaded'); }, []);
+  const clearTimers = useCallback(() => {
+    if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    if (comboTimeoutRef.current !== null) clearTimeout(comboTimeoutRef.current);
+    timeoutRef.current = comboTimeoutRef.current = null;
   }, []);
+  useEffect(() => clearTimers, [clearTimers]);
 
-  const clearSessionTimeout = useCallback(() => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (comboTimeoutRef.current !== null) {
-      window.clearTimeout(comboTimeoutRef.current);
-      comboTimeoutRef.current = null;
-    }
-  }, []);
+  const completeSession = useCallback(async () => {
+    const state = stateRef.current;
+    if (state.phase !== 'active' || !state.remote || completing.current) return;
+    completing.current = true;
+    clearTimers();
+    try {
+      const remoteResult = await campaignApi.complete(state.remote.id);
+      const tier = getTier(remoteResult.score);
+      const previous = loadProgress();
+      const isNewRecord = remoteResult.score > previous.bestScore;
+      const next = { ...previous, referralId, bestScore: isNewRecord ? remoteResult.score : previous.bestScore, bestTier: isNewRecord ? tier.title : previous.bestTier, bestTierId: isNewRecord ? tier.id : previous.bestTierId };
+      saveProgress(next); setRecord(next);
+      stateRef.current = { ...stateRef.current, phase: 'completed', deadline: null, comboBonus: remoteResult.comboBonus, comboCount: remoteResult.comboCount };
+      setResult({ sessionId: remoteResult.id, score: remoteResult.score, baseScore: remoteResult.baseScore, comboBonus: remoteResult.comboBonus, comboCount: remoteResult.comboCount, foundCount: remoteResult.foundCount, totalCount: TREASURES.length, tier, vouchers: [], redeemUrl: '', referralId, isNewRecord, elapsedMs: remoteResult.durationMs, variant: remoteResult.variant, claimed: false });
+      trackEvent('hunt_completed', { sessionId: remoteResult.id, variant: remoteResult.variant, properties: { score: remoteResult.score, tier: tier.id } });
+      playHuntComplete(tier.id, isNewRecord); render();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Impossibile chiudere la caccia'); }
+    finally { completing.current = false; }
+  }, [clearTimers, referralId]);
 
-  useEffect(() => clearSessionTimeout, [clearSessionTimeout]);
+  const begin = useCallback(async (): Promise<RemoteHunt> => {
+    if (stateRef.current.remote && stateRef.current.phase === 'active') return stateRef.current.remote;
+    if (starting.current) return starting.current;
+    setIsStarting(true); setError(null);
+    const promise = campaignApi.startHunt(referralId, getIncomingReferral());
+    starting.current = promise;
+    try {
+      const remote = await promise;
+      const remaining = Math.max(0, remote.deadlineAt - Date.now());
+      stateRef.current = { phase: 'active', items: createSessionItems(remote.points), deadline: performance.now() + remaining, startedAt: performance.now(), comboCount: 0, comboBonus: 0, remote };
+      revealCounter.current = 0; collecting.current.clear(); setResult(null); setFeed([]); setComboEvent(null); setSessionId(n => n + 1); render();
+      playHuntStart(); vibrate([14, 30, 14]);
+      timeoutRef.current = window.setTimeout(() => void completeSession(), remaining);
+      return remote;
+    } catch (e) { const message = e instanceof Error ? e.message : 'Servizio premi non disponibile'; setError(message); throw e; }
+    finally { starting.current = null; setIsStarting(false); }
+  }, [completeSession, referralId]);
+  const start = useCallback(() => { void begin(); }, [begin]);
 
-  /** Chiude la sessione: calcola medaglia, emette i voucher e mostra il resoconto. */
-  const completeSession = useCallback(() => {
-    const session = stateRef.current;
-    if (session.phase !== 'active') return;
-
-    clearSessionTimeout();
-
-    const baseScore = session.items.reduce((sum, item) => (item.revealed ? sum + item.points : sum), 0);
-    const score = baseScore + session.comboBonus;
-    const foundCount = session.items.filter(item => item.revealed).length;
-    const tier = getTier(score);
-    const vouchers = buildVoucherIssues({ tier, referralId });
-    const primary = vouchers.find(voucher => voucher.kind !== 'aperitivo') ?? vouchers[0];
-
-    const elapsedMs = session.startedAt
-      ? Math.min(HUNT_DURATION_MS, performance.now() - session.startedAt)
-      : HUNT_DURATION_MS;
-
-    const previous = loadProgress();
-    const isNewRecord = score > previous.bestScore;
-    const nextProgress: StoredProgress = {
-      bestScore: isNewRecord ? score : previous.bestScore,
-      bestTier: isNewRecord ? tier.title : previous.bestTier,
-      bestTierId: isNewRecord ? tier.id : previous.bestTierId,
-      referralId,
-      vouchers: [
-        ...previous.vouchers,
-        ...vouchers.map(voucher => ({
-          code: voucher.code,
-          label: voucher.label,
-          tier: tier.title,
-          expiresAt: voucher.expiresAt,
-          date: new Date().toISOString(),
-        })),
-      ].slice(-8),
-    };
-    saveProgress(nextProgress);
-    setRecord(nextProgress);
-
-    // Consumo dei pass giornalieri: nello store reale arriva dall'API inventario.
-    if (tier.givesFestivalPass) {
-      setPassesLeft(consumeDailyPasses(2));
-    }
-
-    stateRef.current = { ...session, phase: 'completed', deadline: null };
-    setResult({
-      score,
-      baseScore,
-      comboBonus: session.comboBonus,
-      comboCount: session.comboCount,
-      foundCount,
-      totalCount: session.items.length,
-      tier,
-      vouchers,
-      redeemUrl: primary.redeemUrl,
-      referralId,
-      isNewRecord,
-      elapsedMs,
-    });
-
-    forceRender();
-    playHuntComplete(tier.id, isNewRecord);
-  }, [clearSessionTimeout, referralId]);
-
-  /** Avvia il countdown di 20s (o riprende se già attivo, senza resettare). */
-  const start = useCallback(() => {
-    if (stateRef.current.phase === 'active') return;
-
-    clearSessionTimeout();
-    const now = performance.now();
-    stateRef.current = {
-      phase: 'active',
-      items: createSessionItems(),
-      deadline: now + HUNT_DURATION_MS,
-      startedAt: now,
-      lastRevealed: null,
-      comboCount: 0,
-      comboBonus: 0,
-    };
-    revealCounterRef.current = 0;
-    setResult(null);
-    setFeed([]);
-    setComboEvent(null);
-    setPassesLeft(getDailyPassesLeft());
-    setSessionId(id => id + 1);
-    forceRender();
-
-    playHuntStart();
-    vibrate([14, 30, 14]);
-    timeoutRef.current = window.setTimeout(completeSession, HUNT_DURATION_MS);
-  }, [clearSessionTimeout, completeSession]);
-
-  /** Rivela una figurina: avvia il timer, calcola i punti e riconosce le combo. */
-  const reveal = useCallback(
-    (id: TreasureId) => {
-      if (stateRef.current.phase === 'completed') return;
-
-      // Primo tocco su una figurina -> il countdown parte da qui.
-      if (stateRef.current.phase === 'idle') {
-        start();
-      }
-
-      const session = stateRef.current;
-      const index = session.items.findIndex(item => item.id === id);
-      if (index < 0 || session.items[index].revealed) return;
-
-      const points = session.items[index].points;
-      const items = session.items.map((item, i) => (i === index ? { ...item, revealed: true } : item));
-
-      // Combo gastronomica: due tap consecutivi coerenti valgono un bonus immediato.
-      const combo = findCombo(session.lastRevealed, id);
-      const comboBonus = session.comboBonus + (combo?.bonus ?? 0);
-      const comboCount = session.comboCount + (combo ? 1 : 0);
-
-      stateRef.current = {
-        ...session,
-        items,
-        lastRevealed: id,
-        comboBonus,
-        comboCount,
-      };
-
-      const revealIndex = revealCounterRef.current;
-      revealCounterRef.current += 1;
-      const collectedSoFar = items.reduce(
-        (sum, item) => (item.revealed ? sum + item.points : sum),
-        comboBonus
-      );
-
-      setFeed(previous =>
-        [
-          ...previous,
-          {
-            key: revealIndex,
-            label: items[index].label,
-            emoji: items[index].emoji,
-            points,
-            total: collectedSoFar,
-          },
-        ].slice(-3)
-      );
-
-      if (combo) {
-        const event: HuntComboEvent = {
-          key: revealIndex,
-          label: combo.label,
-          bonus: combo.bonus,
-          items: [session.lastRevealed as TreasureId, id],
-        };
-        setComboEvent(event);
-        playCombo();
-        vibrate([12, 26, 12, 26]);
-        if (comboTimeoutRef.current !== null) window.clearTimeout(comboTimeoutRef.current);
+  const reveal = useCallback(async (id: TreasureId) => {
+    try {
+      if (stateRef.current.phase === 'completed' || collecting.current.has(id)) return;
+      const remote = stateRef.current.phase === 'idle' ? await begin() : stateRef.current.remote;
+      if (!remote || stateRef.current.items.some(i => i.id === id && i.revealed)) return;
+      collecting.current.add(id);
+      const collected = await campaignApi.collect(remote.id, id);
+      const state = stateRef.current;
+      const index = state.items.findIndex(i => i.id === id);
+      if (index < 0 || state.items[index].revealed) return;
+      const items = state.items.map((item, i) => i === index ? { ...item, points: collected.points, revealed: true } : item);
+      stateRef.current = { ...state, items, comboBonus: state.comboBonus + collected.bonus, comboCount: state.comboCount + (collected.bonus ? 1 : 0) };
+      const key = revealCounter.current++;
+      setFeed(old => [...old, { key, label: items[index].label, emoji: items[index].emoji, points: collected.points, total: collected.score }].slice(-3));
+      if (collected.bonus) {
+        setComboEvent({ key, label: 'Combo Tipica!', bonus: collected.bonus, items: [id, id] });
+        playCombo(); vibrate([12, 26, 12, 26]);
         comboTimeoutRef.current = window.setTimeout(() => setComboEvent(null), 1800);
       }
+      playTreasureReveal(key, collected.points); vibrate(collected.points >= 9 ? [14, 34, 14] : 14); render();
+      if (collected.foundCount === TREASURES.length) window.setTimeout(() => void completeSession(), 620);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Figurina non registrata'); }
+    finally { collecting.current.delete(id); }
+  }, [begin, completeSession]);
 
-      playTreasureReveal(revealIndex, points);
-      vibrate(points >= 9 ? [14, 34, 14] : 14);
-      forceRender();
-
-      // Tutte le figurine trovate: chiusura anticipata dopo l'animazione di raccolta.
-      if (items.every(item => item.revealed)) {
-        window.setTimeout(() => completeSession(), 620);
-      }
-    },
-    [start, completeSession]
-  );
-
-  /** Resetta la sessione (timer, punti, figurine) tornando allo stato iniziale. */
-  const resetSession = useCallback(() => {
-    clearSessionTimeout();
-    stateRef.current = createInitialState();
-    revealCounterRef.current = 0;
-    setResult(null);
-    setFeed([]);
-    setComboEvent(null);
-    setSessionId(id => id + 1);
-    forceRender();
-  }, [clearSessionTimeout]);
-
-  const replay = useCallback(() => resetSession(), [resetSession]);
-  const abandon = useCallback(() => resetSession(), [resetSession]);
-
-  const toggleMute = useCallback(() => {
-    setMuted(previous => !previous);
-  }, []);
-
-  const state = stateRef.current;
-  const baseScore = state.items.reduce((sum, item) => (item.revealed ? sum + item.points : sum), 0);
-  const score = baseScore + state.comboBonus;
-  const foundCount = state.items.filter(item => item.revealed).length;
-
-  const referralLink = useCallback(() => buildReferralLink(referralId), [referralId]);
-
-  const shareMessage = useCallback(() => {
-    if (!result) return '';
-    return buildShareMessage(result.tier, result.score, buildReferralLink(result.referralId));
+  const claimVouchers = useCallback(async (lead: LeadClaim) => {
+    const current = result;
+    if (!current) throw new Error('Risultato non disponibile');
+    const response = await campaignApi.claim(current.sessionId, lead);
+    const primary = response.vouchers.find(v => v.kind !== 'aperitivo') ?? response.vouchers[0];
+    const nextResult = { ...current, vouchers: response.vouchers, redeemUrl: primary?.redeemUrl || '', claimed: true };
+    setResult(nextResult); setPassesLeft(response.passesRemaining);
+    const previous = loadProgress();
+    const next = { ...previous, vouchers: [...previous.vouchers, ...response.vouchers.map(v => ({ code: v.code, label: v.label, tier: current.tier.title, expiresAt: v.expiresAt, date: new Date().toISOString() }))].slice(-8) };
+    saveProgress(next); setRecord(next);
+    trackEvent('lead_submitted', { sessionId: current.sessionId, variant: current.variant, properties: { contactType: lead.contactType, marketingOptIn: lead.marketingOptIn } });
   }, [result]);
 
-  const shareUrl = useCallback(() => buildWhatsAppShareUrl(shareMessage()), [shareMessage]);
-
-  const isRevealed = useCallback((id: TreasureId) => {
-    return stateRef.current.items.some(item => item.id === id && item.revealed);
-  }, []);
-
-  return useMemo<TreasureHuntApi>(
-    () => ({
-      phase: state.phase,
-      items: state.items,
-      score,
-      baseScore,
-      comboBonus: state.comboBonus,
-      comboCount: state.comboCount,
-      foundCount,
-      totalCount: state.items.length,
-      deadline: state.deadline,
-      result,
-      record,
-      muted,
-      sessionId,
-      feed,
-      comboEvent,
-      passesLeft,
-      referralId,
-      start,
-      reveal,
-      replay,
-      abandon,
-      toggleMute,
-      isRevealed,
-      shareMessage,
-      shareUrl,
-      referralLink,
-    }),
-    [
-      state.phase,
-      state.items,
-      state.comboBonus,
-      state.comboCount,
-      state.deadline,
-      score,
-      foundCount,
-      result,
-      record,
-      muted,
-      sessionId,
-      feed,
-      comboEvent,
-      passesLeft,
-      referralId,
-      start,
-      reveal,
-      replay,
-      abandon,
-      toggleMute,
-      isRevealed,
-      shareMessage,
-      shareUrl,
-      referralLink,
-    ]
-  );
+  const reset = useCallback(() => { clearTimers(); stateRef.current = initialState(); collecting.current.clear(); completing.current = false; setResult(null); setFeed([]); setComboEvent(null); setError(null); setSessionId(n => n + 1); render(); }, [clearTimers]);
+  const state = stateRef.current;
+  const baseScore = state.items.reduce((sum, item) => sum + (item.revealed ? item.points : 0), 0);
+  const score = baseScore + state.comboBonus;
+  const referralLink = useCallback(() => buildReferralLink(referralId), [referralId]);
+  const shareMessage = useCallback(() => result ? buildShareMessage(result.tier, result.score, buildReferralLink(result.referralId)) : '', [result]);
+  return useMemo(() => ({
+    phase: state.phase, items: state.items, score, baseScore, comboBonus: state.comboBonus, comboCount: state.comboCount,
+    foundCount: state.items.filter(i => i.revealed).length, totalCount: state.items.length, deadline: state.deadline,
+    durationMs: state.remote?.durationMs ?? HUNT_DURATION_MS, result, record, muted, sessionId, feed, comboEvent,
+    passesLeft, festivalStartAt, referralId, isStarting, error, start, reveal: (id: TreasureId) => { void reveal(id); }, replay: reset, abandon: reset,
+    toggleMute: () => setMuted(v => !v), isRevealed: (id: TreasureId) => stateRef.current.items.some(i => i.id === id && i.revealed),
+    claimVouchers, shareMessage, shareUrl: () => buildWhatsAppShareUrl(shareMessage()), referralLink,
+  }), [state.phase, state.items, state.comboBonus, state.comboCount, state.deadline, state.remote, score, baseScore, result, record, muted, sessionId, feed, comboEvent, passesLeft, festivalStartAt, referralId, isStarting, error, start, reveal, reset, claimVouchers, shareMessage, referralLink]);
 }

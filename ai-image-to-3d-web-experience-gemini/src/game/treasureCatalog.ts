@@ -283,6 +283,8 @@ export interface VoucherIssue {
   redeemUrl: string;
   /** Contenuto codificato nel QR code (stesso URL di riscatto). */
   qrPayload: string;
+  /** Link generati dal backend quando i provider Wallet sono configurati. */
+  walletLinks?: { apple?: string; google?: string };
 }
 
 export interface UserProgress {
@@ -339,6 +341,8 @@ export function buildReferralLink(referralId: string): string {
 }
 
 const INCOMING_REFERRAL_KEY = 'borgo-sospeso:invito-ricevuto:v1';
+/** Finestra di attribuzione marketing del referral in ingresso. */
+export const REFERRAL_ATTRIBUTION_DAYS = 30;
 
 /**
  * Attribuzione del viral loop: registra il referral di chi ci ha portato qui
@@ -362,8 +366,14 @@ export function getIncomingReferral(): string | null {
   try {
     const raw = window.localStorage.getItem(INCOMING_REFERRAL_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { ref?: string };
-    return parsed.ref ?? null;
+    const parsed = JSON.parse(raw) as { ref?: string; at?: number };
+    const validRef = typeof parsed.ref === 'string' && /^REF-[A-Z2-9]{5}$/.test(parsed.ref);
+    const validDate = typeof parsed.at === 'number' && Date.now() - parsed.at <= REFERRAL_ATTRIBUTION_DAYS * 86_400_000;
+    if (!validRef || !validDate) {
+      window.localStorage.removeItem(INCOMING_REFERRAL_KEY);
+      return null;
+    }
+    return parsed.ref as string;
   } catch {
     return null;
   }

@@ -13,3 +13,8 @@ node_modules/.cache/
 .idea/
 .vscode/
 *.log
+
+# Database locale API (mai versionare lead o voucher)
+**/data/*.sqlite
+**/data/*.sqlite-shm
+**/data/*.sqlite-wal

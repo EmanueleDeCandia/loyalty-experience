@@ -7,7 +7,7 @@ con un mini-game di caccia ai tesori integrato nella scena 3D.
 
 | Regola | Valore |
 | --- | --- |
-| Durata sessione | 20 secondi (countdown `MM:SS` + barra/anello + countdown gigante negli ultimi 5s) |
+| Durata sessione | Test A/B server-side: 20 oppure 30 secondi (countdown `MM:SS` + anello + countdown gigante negli ultimi 5s) |
 | Figurine | 9: `caffè`, `scarpe`, `vino`, `pizza`, `insalata`, `lasagne`, `pollo`, `patate`, `bistecca` |
 | Punti | valore intero casuale 5–10, assegnato una sola volta all'avvio della sessione |
 | Tap | ogni figurina è cliccabile **una sola volta** per sessione (poi resta visibile in stato disabilitato) |
@@ -47,16 +47,16 @@ con un mini-game di caccia ai tesori integrato nella scena 3D.
 - **Riscatto sullo store** — ogni voucher è un **QR generato a runtime** (`qrcode`) che codifica l'URL
   dell'e-commerce ufficiale con querystring pre-applicata
   (`https://store.dantefestival.it/checkout?voucher=DANTE-…&tier=…&ref=…`): il codice promozionale
-  arriva già applicato al carrello. Override dell'endpoint con `VITE_DANTE_STORE_URL`.
+  arriva già applicato al carrello. Override server-side con `DANTE_STORE_URL`.
 - **Viral loop** — messaggio WhatsApp pre-compilato (`https://api.whatsapp.com/send?text=…`) con
   medaglia, voucher Aperitivo Cena per 2 persone e link `?caccia=1&ref=REF-XXXXX`; chi apre il link
-  atterra direttamente sulla caccia e l'attribuzione del referral viene salvata in locale.
-  La **share card** (badge, punteggio, titolo utente, QR/referral) è disegnata lato client su canvas
+  atterra direttamente sulla caccia; l'attribuzione resta 30 giorni nel browser e viene poi registrata
+  nel profilo referral e nella sessione server-side. La **share card** (badge, punteggio, titolo utente, QR/referral) è disegnata lato client su canvas
   e condivisa come immagine (Web Share API) o scaricata in PNG.
-- **Scarsità dinamica (FOMO)** — banner sempre visibile con i pass Dante Festival ancora disponibili
-  nella giornata (`DAILY_PASS_ALLOWANCE = 20`, consumati in doppia copia da Platino/Diamante).
-- **Persistenza locale** — record personale, codici voucher vinti, referral id e pass residui sono
-  salvati in `localStorage`.
+- **Scarsità reale (FOMO)** — banner con inventario letto dall'API e decremento atomico dei pass
+  (`DAILY_PASS_ALLOWANCE = 20`, consumati in doppia copia da Platino/Diamante), più countdown evento.
+- **Persistenza sicura** — sessioni, lead, stock e voucher vivono in SQLite; `localStorage` conserva
+  soltanto record/referral e una copia UX dei premi. Validità e monouso sono sempre verificati dal server.
 
 ### Messaggi di condivisione (da specifica)
 
@@ -94,17 +94,47 @@ src/
     fantasy/Ornaments.tsx         # cornici, fregi, sigilli di cera e stemma del borgo
 ```
 
+## Conversione e backend voucher
+
+La release conversione sposta dal browser al server gli elementi sensibili:
+
+- sessione e punti della caccia, con variante A/B timer 20/30 secondi;
+- codici voucher generati solo dopo lead capture e utilizzabili una sola volta;
+- scadenza 48 ore, stato `active/redeemed/expired` e validazione alla cassa;
+- inventario giornaliero dei pass con decremento atomico;
+- lead email/telefono, consensi privacy/marketing/WhatsApp separati;
+- profili referral server-side (`referral_profiles.code` come primary key), attribuzione a 30 giorni e associazione al lead;
+- eventi funnel (`app_loaded`, start, raccolte, fine, lead, share, riscatto);
+- data evento e countdown forniti dall'API;
+- link Apple/Google Wallet mostrati solo quando i rispettivi provider sono configurati.
+
+L'API portabile usa il modulo `node:sqlite` di Node 22 e salva il database in `data/` (ignorato da Git).
+Copia `.env.example` nella configurazione del tuo hosting. Per Apple Wallet serve un servizio che firmi
+il `.pkpass` con certificato Pass Type ID; per Google Wallet serve un issuer autorizzato. I relativi
+URL si configurano senza esporre credenziali nel frontend.
+
+### Endpoint operativi
+
+- `GET /api/campaign` — inventario, ora server e data evento;
+- `POST /api/hunts/start`, `/:id/collect`, `/:id/complete` — partita autorevole server-side;
+- `POST /api/hunts/:id/claim` — lead capture ed emissione atomica dei premi;
+- `GET /api/vouchers/:code` — verifica stato;
+- `POST /api/vouchers/:code/redeem` — riscatto monouso (header `x-cashier-key` in produzione);
+- `POST /api/analytics` — eventi funnel allowlisted.
+
 ## Comandi
 
 ```bash
-npm install
-npm run dev          # dev server (host 0.0.0.0, porta 5173)
+npm ci
+npm run dev          # avvia API :8787 + Vite :5173 con proxy /api
+npm run api          # API Node/SQLite (serve anche dist/ se presente)
+npm run dev:web      # solo frontend
 npm run build        # build single-file in dist/index.html
-npm run preview      # anteprima della build
+npm start            # produzione: API + build statica sullo stesso processo
+npm run preview      # anteprima della sola build frontend
 npm run typecheck    # tsc --noEmit
-npm run verify:hunt  # test headless (jsdom) del flusso di gioco
+npm run verify:hunt  # integrazione API: gioco, lead, stock e voucher monouso
 ```
 
-`npm run verify:hunt` esegue l'intera partita senza browser: countdown 20 s, reveal singolo, combo
-gastronomiche con bonus, soglie medaglia, voucher Zero-Loss con QR e scadenza 48 h, URL di riscatto
-sullo store, copy WhatsApp, consumo dei pass giornalieri e "Rigioca".
+> La build frontend non va pubblicata da sola: in produzione `/api` deve puntare al processo Node.
+> Configurare obbligatoriamente `CASHIER_API_KEY`, HTTPS, backup e retention/privacy dei lead.

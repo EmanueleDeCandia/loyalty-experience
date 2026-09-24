@@ -149,7 +149,7 @@ export const TreasureStartModal: React.FC<TreasureStartModalProps> = ({
                 <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5d94bb]" aria-hidden />
                 <span>
                   La clessidra parte al <strong>primo tocco</strong> o dal pulsante qui sotto: poi hai
-                  20 secondi per accumulare punti.
+                  20 o 30 secondi per accumulare punti: la durata è assegnata dal test A/B.
                 </span>
               </li>
             </ul>

@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "api": "node server/api-server.mjs",
+    "start": "node server/api-server.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:hunt": "esbuild scripts/verify-hunt.mjs --bundle --platform=node --format=esm --target=node22 --external:jsdom --external:qrcode --outfile=node_modules/.cache/verify-hunt.mjs --log-level=warning && node node_modules/.cache/verify-hunt.mjs"
+    "verify:hunt": "node scripts/verify-hunt.mjs"
   },
   "dependencies": {
     "@types/three": "^0.186.0",
