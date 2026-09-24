@@ -14,6 +14,23 @@ export interface DashboardData {
 }
 
 const TOKEN_KEY = 'dante-admin:demo-session';
+let memoryToken: string | null = null;
+
+/** Il fallback in memoria permette l'accesso anche dentro preview iframe che bloccano sessionStorage. */
+function readToken(): string | null {
+  if (memoryToken) return memoryToken;
+  try { memoryToken = window.sessionStorage.getItem(TOKEN_KEY); } catch { /* storage disabilitato */ }
+  return memoryToken;
+}
+function saveToken(token: string): void {
+  memoryToken = token;
+  try { window.sessionStorage.setItem(TOKEN_KEY, token); } catch { /* la sessione resta valida in memoria */ }
+}
+function clearToken(): void {
+  memoryToken = null;
+  try { window.sessionStorage.removeItem(TOKEN_KEY); } catch { /* storage disabilitato */ }
+}
+
 async function parse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({})) as T & { error?: string };
   if (!response.ok) throw new Error(body.error || 'Servizio amministrativo non disponibile');
@@ -21,17 +38,17 @@ async function parse<T>(response: Response): Promise<T> {
 }
 
 export const adminApi = {
-  token: () => sessionStorage.getItem(TOKEN_KEY),
+  token: readToken,
   login: async (email: string, password: string) => {
     const data = await parse<{ token: string; user: { name: string; email: string; role: string } }>(await fetch('/api/admin/demo-login', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }),
     }));
-    sessionStorage.setItem(TOKEN_KEY, data.token);
+    saveToken(data.token);
     return data.user;
   },
-  logout: () => sessionStorage.removeItem(TOKEN_KEY),
+  logout: clearToken,
   dashboard: async () => {
-    const token = sessionStorage.getItem(TOKEN_KEY);
+    const token = readToken();
     if (!token) throw new Error('Accedi con l’account demo');
     return parse<DashboardData>(await fetch('/api/admin/dashboard', { headers: { authorization: `Bearer ${token}` } }));
   },
