@@ -113,8 +113,24 @@ Copia `.env.example` nella configurazione del tuo hosting. Per Apple Wallet serv
 il `.pkpass` con certificato Pass Type ID; per Google Wallet serve un issuer autorizzato. I relativi
 URL si configurano senza esporre credenziali nel frontend.
 
+### Dashboard amministratore demo
+
+Il pulsante **Dashboard** nell'angolo in alto a destra apre la Control Room. L'account dimostrativo è:
+
+```text
+admin@dantefestival.it
+password: demo2026
+```
+
+Al primo accesso vengono creati in SQLite dati sintetici idempotenti per 2 ambassador e 25 invitati.
+La dashboard mostra KPI, funnel, andamento a 12 giorni, leaderboard referral, A/B test, contatti e voucher.
+Le credenziali sono configurabili da ambiente; prima della produzione l'autenticazione demo deve essere
+sostituita con un identity provider e ruoli amministrativi reali.
+
 ### Endpoint operativi
 
+- `POST /api/admin/demo-login` — accesso dimostrativo;
+- `GET /api/admin/dashboard` — aggregati protetti da session token;
 - `GET /api/campaign` — inventario, ora server e data evento;
 - `POST /api/hunts/start`, `/:id/collect`, `/:id/complete` — partita autorevole server-side;
 - `POST /api/hunts/:id/claim` — lead capture ed emissione atomica dei premi;

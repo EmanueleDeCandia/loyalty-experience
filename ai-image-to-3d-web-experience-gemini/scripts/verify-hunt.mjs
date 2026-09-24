@@ -29,6 +29,19 @@ try {
   assert.equal(campaign.body.passesRemaining, 20);
   assert.equal(campaign.body.festivalStartAt, '2026-10-10T18:00:00+02:00');
 
+  const deniedLogin = await request('/api/admin/demo-login', { method: 'POST', body: JSON.stringify({ email: 'admin@dantefestival.it', password: 'errata' }) });
+  assert.equal(deniedLogin.response.status, 401);
+  const login = await request('/api/admin/demo-login', { method: 'POST', body: JSON.stringify({ email: 'admin@dantefestival.it', password: 'demo2026' }) });
+  assert.equal(login.response.status, 200);
+  const deniedDashboard = await request('/api/admin/dashboard');
+  assert.equal(deniedDashboard.response.status, 401);
+  const dashboard = await request('/api/admin/dashboard', { headers: { authorization: `Bearer ${login.body.token}` } });
+  assert.equal(dashboard.response.status, 200);
+  assert.equal(dashboard.body.kpis.invited, 25, 'dataset demo con 25 invitati');
+  assert.equal(dashboard.body.referrals.length, 2, 'dataset demo con 2 ambassador');
+  assert.equal(dashboard.body.kpis.leadsFromInvites, 18, '18 lead sintetici attribuiti');
+  assert.ok(dashboard.body.trend.length === 12 && dashboard.body.abTests.length === 2, 'grafici dashboard disponibili');
+
   // Il referrer deve essere un profilo realmente registrato, non un codice inventato.
   const referrer = await request('/api/hunts/start', { method: 'POST', body: JSON.stringify({ referralId: 'REF-ZYXWV' }) });
   assert.equal(referrer.response.status, 201);

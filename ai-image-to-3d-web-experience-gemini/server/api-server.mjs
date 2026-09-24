@@ -5,6 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { loadEnvFile } from 'node:process';
+import { getDashboardData, seedDashboardDemo } from './admin-dashboard.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 try { loadEnvFile(resolve(ROOT, '.env')); } catch { /* configurazione via ambiente */ }
@@ -17,6 +18,9 @@ const FESTIVAL_START_AT = process.env.FESTIVAL_START_AT || process.env.VITE_FEST
 const CASHIER_KEY = process.env.CASHIER_API_KEY || '';
 const APPLE_WALLET_BASE_URL = process.env.APPLE_WALLET_BASE_URL || '';
 const GOOGLE_WALLET_BASE_URL = process.env.GOOGLE_WALLET_BASE_URL || '';
+const ADMIN_DEMO_EMAIL = process.env.ADMIN_DEMO_EMAIL || 'admin@dantefestival.it';
+const ADMIN_DEMO_PASSWORD = process.env.ADMIN_DEMO_PASSWORD || 'demo2026';
+const ADMIN_TOKEN = process.env.ADMIN_DEMO_TOKEN || randomBytes(24).toString('hex');
 const VOUCHER_HOURS = 48;
 const IDS = ['caffe', 'scarpe', 'vino', 'pizza', 'insalata', 'lasagne', 'pollo', 'patate', 'bistecca'];
 const COMBOS = new Map([
@@ -153,8 +157,23 @@ const track = (event, sessionId, variant, payload = {}) => {
 
 async function route(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  if (req.method === 'OPTIONS') return json(res, 204, {}, { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,x-cashier-key', 'access-control-allow-methods': 'GET,POST,OPTIONS' });
+  if (req.method === 'OPTIONS') return json(res, 204, {}, { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type,authorization,x-cashier-key', 'access-control-allow-methods': 'GET,POST,OPTIONS' });
   if (url.pathname === '/api/health') return json(res, 200, { ok: true, database: 'sqlite', now: new Date().toISOString() });
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/demo-login') {
+    const body = await readBody(req);
+    if (String(body.email || '').trim().toLowerCase() !== ADMIN_DEMO_EMAIL || body.password !== ADMIN_DEMO_PASSWORD) {
+      return json(res, 401, { error: 'Credenziali demo non valide' });
+    }
+    seedDashboardDemo(db);
+    return json(res, 200, { token: ADMIN_TOKEN, user: { name: 'Amministratore Demo', email: ADMIN_DEMO_EMAIL, role: 'admin' } });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/dashboard') {
+    if (req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 401, { error: 'Sessione amministratore non valida' });
+    seedDashboardDemo(db);
+    return json(res, 200, getDashboardData(db));
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/campaign') {
     return json(res, 200, { serverNow: Date.now(), festivalStartAt: FESTIVAL_START_AT, passesRemaining: inventory(), voucherValidityHours: VOUCHER_HOURS });

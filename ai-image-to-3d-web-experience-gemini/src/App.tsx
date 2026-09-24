@@ -17,7 +17,8 @@ import { captureIncomingReferral } from './game/treasureCatalog';
 import { TreasureId } from './game/treasureCatalog';
 import { useTreasureHunt } from './game/useTreasureHunt';
 import { trackEvent } from './game/api';
-import { Sparkles, Info } from 'lucide-react';
+import { AdminDashboard } from './admin/AdminDashboard';
+import { BarChart3, Sparkles, Info } from 'lucide-react';
 
 const PRESETS = {
   village: {
@@ -75,6 +76,7 @@ export function App() {
   // Interactive Tools
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [isPipelineOpen, setIsPipelineOpen] = useState<boolean>(false);
+  const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<ImageAnalysisResult | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -434,9 +436,22 @@ export function App() {
         />
       )}
 
+      {/* Accesso amministratore: sempre separato dai controlli dell'esperienza. */}
+      {!isComparing && (
+        <button
+          type="button"
+          onClick={() => setIsAdminOpen(true)}
+          className="absolute right-3 top-3 z-40 flex items-center gap-2 rounded-2xl border border-emerald-300/30 bg-slate-950/90 p-2.5 text-xs font-extrabold text-white shadow-xl shadow-black/25 backdrop-blur-xl transition hover:bg-emerald-900 sm:px-3"
+          title="Apri la dashboard amministratore"
+        >
+          <BarChart3 className="h-4 w-4 text-emerald-400" />
+          <span className="hidden sm:inline">Dashboard</span>
+        </button>
+      )}
+
       {/* Comandi di gioco: pannello laterale indipendente dagli strumenti 3D. */}
       {!isComparing && (
-        <aside className="pointer-events-none absolute right-3 top-[4.5rem] z-30 max-w-[calc(100vw-1.5rem)] lg:top-3 lg:max-w-[24rem]">
+        <aside className="pointer-events-none absolute right-3 top-[4.5rem] z-30 max-w-[calc(100vw-1.5rem)] lg:max-w-[24rem]">
           <HuntHud
             phase={hunt.phase}
             score={hunt.score}
@@ -517,8 +532,10 @@ export function App() {
         onClaim={hunt.claimVouchers}
       />
 
+      {isAdminOpen && <AdminDashboard onClose={() => setIsAdminOpen(false)} />}
+
       {/* Loading Overlay */}
-      {isLoading && (
+      {isLoading && !isAdminOpen && (
         <div className="absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
           <div className="relative mb-6">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-xl shadow-cyan-500/30 animate-pulse">

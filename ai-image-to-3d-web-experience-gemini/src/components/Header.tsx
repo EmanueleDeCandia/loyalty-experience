@@ -32,7 +32,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="pointer-events-none absolute left-3 top-3 z-30 max-w-[calc(100vw-1.5rem)] lg:max-w-[calc(100vw-26rem)]">
+    <header className="pointer-events-none absolute left-3 top-3 z-30 max-w-[calc(100vw-4.75rem)] lg:max-w-[calc(100vw-26rem)]">
       <div className="pointer-events-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-2xl border border-slate-700/60 bg-slate-900/85 p-1.5 text-xs shadow-xl shadow-black/25 backdrop-blur-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex shrink-0 items-center rounded-xl bg-slate-950/45 p-0.5">
           <button onClick={() => onSelectPreset('village')} className={`rounded-lg px-3 py-1.5 font-semibold transition ${activePreset === 'village' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>Isola #1</button>
