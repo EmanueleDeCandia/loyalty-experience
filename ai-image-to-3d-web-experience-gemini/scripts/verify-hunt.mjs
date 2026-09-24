@@ -33,6 +33,7 @@ try {
   assert.equal(deniedLogin.response.status, 401);
   const login = await request('/api/admin/demo-login', { method: 'POST', body: JSON.stringify({ email: 'admin@dantefestival.it', password: 'demo2026' }) });
   assert.equal(login.response.status, 200);
+  assert.equal(login.body.dashboard.kpis.invited, 25, 'login restituisce subito i dati evitando transizioni instabili');
   const deniedDashboard = await request('/api/admin/dashboard');
   assert.equal(deniedDashboard.response.status, 401);
   const dashboard = await request('/api/admin/dashboard', { headers: { authorization: `Bearer ${login.body.token}` } });

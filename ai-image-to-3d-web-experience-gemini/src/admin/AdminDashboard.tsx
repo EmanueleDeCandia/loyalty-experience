@@ -36,7 +36,7 @@ export const AdminDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) =
   };
   useEffect(() => { if (authenticated) void load(); }, []);
 
-  if (!authenticated) return <AdminLogin onClose={onClose} onSuccess={() => { setAuthenticated(true); void load(); }} />;
+  if (!authenticated) return <AdminLogin onClose={onClose} onSuccess={dashboard => { setData(dashboard); setLoading(false); setAuthenticated(true); }} />;
 
   const logout = () => { adminApi.logout(); setAuthenticated(false); setData(null); setError(''); };
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -81,14 +81,14 @@ export const AdminDashboard: React.FC<{ onClose: () => void }> = ({ onClose }) =
   );
 };
 
-const AdminLogin: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
+const AdminLogin: React.FC<{ onClose: () => void; onSuccess: (dashboard: DashboardData) => void }> = ({ onClose, onSuccess }) => {
   const [email, setEmail] = useState(DEMO_EMAIL);
   const [password, setPassword] = useState(DEMO_PASSWORD);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
-    try { await adminApi.login(email, password); onSuccess(); }
+    try { const session = await adminApi.login(email, password); onSuccess(session.dashboard); }
     catch (err) { setError(err instanceof Error ? err.message : 'Accesso non riuscito'); }
     finally { setBusy(false); }
   };

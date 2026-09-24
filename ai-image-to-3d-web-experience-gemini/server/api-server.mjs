@@ -20,7 +20,9 @@ const APPLE_WALLET_BASE_URL = process.env.APPLE_WALLET_BASE_URL || '';
 const GOOGLE_WALLET_BASE_URL = process.env.GOOGLE_WALLET_BASE_URL || '';
 const ADMIN_DEMO_EMAIL = process.env.ADMIN_DEMO_EMAIL || 'admin@dantefestival.it';
 const ADMIN_DEMO_PASSWORD = process.env.ADMIN_DEMO_PASSWORD || 'demo2026';
-const ADMIN_TOKEN = process.env.ADMIN_DEMO_TOKEN || randomBytes(24).toString('hex');
+// Token stabile solo per la demo: evita sessioni invalidate dai riavvii della preview.
+// In produzione ADMIN_DEMO_TOKEN va sostituito da sessioni firmate e scadenza server-side.
+const ADMIN_TOKEN = process.env.ADMIN_DEMO_TOKEN || 'dante-demo-admin-session-v1';
 const VOUCHER_HOURS = 48;
 const IDS = ['caffe', 'scarpe', 'vino', 'pizza', 'insalata', 'lasagne', 'pollo', 'patate', 'bistecca'];
 const COMBOS = new Map([
@@ -166,7 +168,11 @@ async function route(req, res) {
       return json(res, 401, { error: 'Credenziali demo non valide' });
     }
     seedDashboardDemo(db);
-    return json(res, 200, { token: ADMIN_TOKEN, user: { name: 'Amministratore Demo', email: ADMIN_DEMO_EMAIL, role: 'admin' } });
+    return json(res, 200, {
+      token: ADMIN_TOKEN,
+      user: { name: 'Amministratore Demo', email: ADMIN_DEMO_EMAIL, role: 'admin' },
+      dashboard: getDashboardData(db),
+    });
   }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/dashboard') {

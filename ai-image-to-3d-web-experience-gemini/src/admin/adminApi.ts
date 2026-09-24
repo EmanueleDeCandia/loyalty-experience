@@ -40,11 +40,11 @@ async function parse<T>(response: Response): Promise<T> {
 export const adminApi = {
   token: readToken,
   login: async (email: string, password: string) => {
-    const data = await parse<{ token: string; user: { name: string; email: string; role: string } }>(await fetch('/api/admin/demo-login', {
+    const data = await parse<{ token: string; user: { name: string; email: string; role: string }; dashboard: DashboardData }>(await fetch('/api/admin/demo-login', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }),
     }));
     saveToken(data.token);
-    return data.user;
+    return { user: data.user, dashboard: data.dashboard };
   },
   logout: clearToken,
   dashboard: async () => {
