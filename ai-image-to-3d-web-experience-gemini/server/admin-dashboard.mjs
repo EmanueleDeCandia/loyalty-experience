@@ -106,9 +106,9 @@ export function getDashboardData(db) {
     LEFT JOIN hunts h ON h.incoming_referral=rp.code
     LEFT JOIN vouchers v ON v.hunt_id=h.id
     GROUP BY rp.code
-    HAVING invites>0
+    HAVING invites>0 OR l.id IS NOT NULL
     ORDER BY invites DESC, rp.code
-    LIMIT 10
+    LIMIT 15
   `).all().map(row => ({ ...row, conversion: percentage(number(row.leads), number(row.invites)) }));
 
   const abTests = db.prepare(`
@@ -138,25 +138,133 @@ export function getDashboardData(db) {
     return { day, label: new Intl.DateTimeFormat('it-IT', { day: '2-digit', month: 'short' }).format(timestamp), sessions: number(row?.sessions), leads: number(row?.leads) };
   });
 
+  const day = new Date().toISOString().slice(0, 10);
+  const dailyCap = Number(process.env.DAILY_PASS_ALLOWANCE || 20);
+  db.prepare('INSERT OR IGNORE INTO inventory(day, remaining) VALUES (?, ?)').run(day, dailyCap);
+  const inventoryRemaining = number(db.prepare('SELECT remaining FROM inventory WHERE day = ?').get(day)?.remaining ?? dailyCap);
+
+  const passesIssued = number(db.prepare("SELECT COUNT(*) AS value FROM vouchers WHERE kind IN ('pass', 'pass_vip')").get().value);
+  const passesActive = number(db.prepare("SELECT COUNT(*) AS value FROM vouchers WHERE kind IN ('pass', 'pass_vip') AND status='active' AND expires_at>?").get(Date.now()).value);
+  const passesRedeemed = number(db.prepare("SELECT COUNT(*) AS value FROM vouchers WHERE kind IN ('pass', 'pass_vip') AND status='redeemed'").get().value);
+
+  const aperitivoActive = number(db.prepare("SELECT COUNT(*) AS value FROM vouchers WHERE kind='aperitivo' AND status='active' AND expires_at>?").get(Date.now()).value);
+  const aperitivoRedeemed = number(db.prepare("SELECT COUNT(*) AS value FROM vouchers WHERE kind='aperitivo' AND status='redeemed'").get().value);
+
   const recentLeads = db.prepare(`
     SELECT l.id, l.contact, l.contact_type AS contactType, l.marketing_opt_in AS marketingOptIn,
       l.whatsapp_opt_in AS whatsappOptIn, l.source, l.created_at AS createdAt,
-      rp.code AS referralCode
-    FROM leads l LEFT JOIN referral_profiles rp ON rp.lead_id=l.id
-    ORDER BY l.created_at DESC LIMIT 12
+      rp.code AS personalReferralCode,
+      h.incoming_referral AS referredByCode,
+      inviter_lead.contact AS referredByContact
+    FROM leads l
+    LEFT JOIN referral_profiles rp ON rp.lead_id=l.id
+    LEFT JOIN (
+      SELECT lead_id, incoming_referral, MAX(started_at)
+      FROM hunts
+      WHERE lead_id IS NOT NULL
+      GROUP BY lead_id
+    ) h ON h.lead_id=l.id
+    LEFT JOIN referral_profiles inviter_rp ON inviter_rp.code=h.incoming_referral
+    LEFT JOIN leads inviter_lead ON inviter_lead.id=inviter_rp.lead_id
+    ORDER BY l.created_at DESC LIMIT 100
   `).all();
 
   const recentVouchers = db.prepare(`
     SELECT v.code, v.kind, v.tier, v.status, v.expires_at AS expiresAt,
-      v.redeemed_at AS redeemedAt, v.created_at AS createdAt, l.contact
+      v.redeemed_at AS redeemedAt, v.created_at AS createdAt, l.contact, l.contact_type AS contactType
     FROM vouchers v JOIN leads l ON l.id=v.lead_id
-    ORDER BY v.created_at DESC LIMIT 12
+    ORDER BY v.created_at DESC LIMIT 200
   `).all();
 
   const voucherStatus = db.prepare(`SELECT status, COUNT(*) AS value FROM vouchers GROUP BY status`).all();
+
+  // Tabella di supporto per il rilancio degli account nella Community
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS loyalty_community (
+      lead_id TEXT PRIMARY KEY,
+      community_relaunched INTEGER NOT NULL DEFAULT 0,
+      community_notes TEXT,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY(lead_id) REFERENCES leads(id)
+    );
+  `);
+
+  const rawLoyalty = db.prepare(`
+    SELECT
+      l.id AS leadId,
+      l.contact,
+      l.contact_type AS contactType,
+      rp.code AS referralCode,
+      (SELECT COUNT(*) FROM hunts h WHERE h.lead_id = l.id) AS huntsCount,
+      (SELECT COALESCE(SUM(h.base_score + h.combo_bonus), 0) FROM hunts h WHERE h.lead_id = l.id) AS pointsFromHunts,
+      (SELECT COUNT(DISTINCT h.lead_id) FROM hunts h WHERE h.incoming_referral = rp.code AND h.lead_id IS NOT NULL) AS invitedLeads,
+      (SELECT COUNT(DISTINCT h.lead_id) FROM hunts h JOIN vouchers v ON v.hunt_id = h.id WHERE h.incoming_referral = rp.code AND v.status = 'redeemed') AS convertedReferrals,
+      COALESCE(lc.community_relaunched, 0) AS communityRelaunched
+    FROM leads l
+    LEFT JOIN referral_profiles rp ON rp.lead_id = l.id
+    LEFT JOIN loyalty_community lc ON lc.lead_id = l.id
+    ORDER BY l.created_at DESC
+  `).all();
+
+  const accounts = rawLoyalty.map(row => {
+    const huntsPts = number(row.pointsFromHunts);
+    const referralPts = number(row.invitedLeads) * 50;
+    const totalPts = huntsPts + referralPts;
+    const conv = number(row.convertedReferrals);
+    const tokens = Math.floor(conv / 3) * 30; // 30 Token ogni 3 referral convertiti
+    const cleanCode = (row.referralCode || 'REF-GUEST').replace('REF-', '');
+    return {
+      leadId: row.leadId,
+      contact: row.contact,
+      contactType: row.contactType,
+      referralCode: row.referralCode || null,
+      huntsCount: number(row.huntsCount),
+      pointsFromHunts: huntsPts,
+      referralPoints: referralPts,
+      totalPoints: totalPts,
+      badge500Unlocked: totalPts >= 500,
+      badge1000Unlocked: totalPts >= 1000,
+      communityRelaunched: Boolean(row.communityRelaunched),
+      convertedReferrals: conv,
+      impactTokensEarned: tokens,
+      impactEuroValue: tokens, // 1 Token = 1 €
+      cashbackCode: tokens > 0 ? `IMPACT-30-${cleanCode}` : null,
+    };
+  });
+
+  const totalPointsDistributed = accounts.reduce((acc, a) => acc + a.totalPoints, 0);
+  const totalImpactTokens = accounts.reduce((acc, a) => acc + a.impactTokensEarned, 0);
+  const badge500Count = accounts.filter(a => a.badge500Unlocked).length;
+  const badge1000Count = accounts.filter(a => a.badge1000Unlocked).length;
+  const communityRelaunchedCount = accounts.filter(a => a.communityRelaunched).length;
+
+  const loyalty = {
+    totalPointsDistributed,
+    totalImpactTokens,
+    totalEuroImpact: totalImpactTokens,
+    badge500Count,
+    badge1000Count,
+    communityRelaunchedCount,
+    accounts,
+  };
+
   return {
     generatedAt: Date.now(),
-    kpis: { invited, contacts, leadsFromInvites: leads, activeVouchers, redeemed, marketingOptIns, leadConversion: percentage(leads, invited), redemptionRate: percentage(redeemed, claimed) },
+    kpis: {
+      invited, contacts, leadsFromInvites: leads, activeVouchers, redeemed,
+      marketingOptIns, leadConversion: percentage(leads, invited), redemptionRate: percentage(redeemed, claimed),
+      inventoryRemaining, dailyCap, passesIssued, passesActive, passesRedeemed, aperitivoActive, aperitivoRedeemed,
+      totalPointsDistributed, totalImpactTokens, totalEuroImpact: totalImpactTokens,
+    },
+    inventory: {
+      remaining: inventoryRemaining,
+      dailyCap,
+      passesIssued,
+      passesActive,
+      passesRedeemed,
+      aperitivoActive,
+      aperitivoRedeemed,
+    },
     funnel: [
       { label: 'Invitati', value: invited },
       { label: 'Partite concluse', value: completed },
@@ -164,6 +272,6 @@ export function getDashboardData(db) {
       { label: 'Voucher emessi', value: claimed },
       { label: 'Voucher riscattati', value: redeemed },
     ],
-    referrals, abTests, trend, recentLeads, recentVouchers, voucherStatus,
+    referrals, abTests, trend, recentLeads, recentVouchers, voucherStatus, loyalty,
   };
 }

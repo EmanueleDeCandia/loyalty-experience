@@ -13,7 +13,7 @@ _Verifica tecnica aggiornata al 24 settembre 2026._
 7. Quando il proprietario completa il lead gate, il suo profilo anonimo viene attivato e associato in modo immutabile a `leads.id`.
 8. Il risultato prepara il copy WhatsApp e la share card con link personale.
 
-**Stato verificato:** generazione, profilo anonimo, deep link, finestra di attribuzione, protezione da codici inesistenti/auto-referral, associazione al lead e condivisione funzionanti. Il calcolo di eventuali premi per il referrer resta una regola commerciale successiva; i dati necessari sono ora strutturati.
+**Stato verificato:** generazione, profilo anonimo, deep link, finestra di attribuzione, protezione da codici inesistenti/auto-referral, associazione al lead e condivisione funzionanti. Il Programma Loyalty premia l'ambassador con +50 pt per ogni amico registrato e 30 Token di Impatto (30 €) ogni 3 referral convertiti.
 
 ## 2. Lead capture e consensi
 
@@ -47,7 +47,23 @@ Il QR e il codice voucher non vengono mostrati prima della compilazione del lead
 
 L'app è pronta a portare l'utente al checkout. Quando verrà realizzato lo Store, il suo backend dovrà interrogare l'API voucher server-to-server e confermare il consumo soltanto dopo il pagamento. Per una gestione completa dei checkout interrotti è previsto come step successivo il contratto `reserve / confirm / release`; l'attuale endpoint `redeem` copre già il consumo atomico ma non la prenotazione temporanea.
 
-## 4. Dati registrati
+## 4. Programma Loyalty, Obiettivi Community e Token di Impatto
+
+1. **Saldo Punti Cumulati**:
+   - Somma i punti realizzati in tutte le cacce completate dal lead (`base_score + combo_bonus`).
+   - Accredita automaticamente **+50 punti fedeltà** per ogni amico invitato che ha completato la caccia e compilato il lead gate.
+2. **a) Obiettivi Community & Visibilità (Premi Simbolici a 500 e 1000 pt)**:
+   - **Soglia 500 pt — Badge Bronze "Community Ambassador"**: il promotore dell'applicazione rilancia il profilo dell'account nel sito web ufficiale della Community del Festival per dare visibilità e riconoscimento all'ambassador.
+   - **Soglia 1000 pt — Badge Gold "Custode Onorario (Community Legend)"**: menzione e vetrina d'onore permanente in Home Page Community.
+3. **b) Token di Impatto & Cashback nei Borghi (1 Token = 1 €)**:
+   - A ogni traguardo di **3 referral convertiti** (amici che hanno riscattato un prodotto o servizio nell'e-commerce con voucher `status = 'redeemed'`), l'utente riceve **30 Token di Impatto**.
+   - I Token corrispondono a un valore monetario reale di **30 €** spendibile come Cashback nei negozi, botteghe e ristoranti dei Borghi del Festival.
+   - Viene generato un codice coupon univoco `IMPACT-30-XXXXXX` tracciato a sistema.
+4. **Controllo & Gestione**:
+   - L'utente accede alla propria modale `Salvadanaio Fedeltà & Token` dall'header o a fine partita.
+   - L'organizzatore gestisce punti, conversioni e rilanci nella nuova scheda `Loyalty & Token di Impatto` della Dashboard Admin.
+
+## 5. Dati registrati
 
 SQLite opera in modalità WAL e contiene:
 
@@ -59,6 +75,7 @@ SQLite opera in modalità WAL e contiene:
 | `vouchers` | codice, tipo, tier, lead e partita collegati, stato, scadenza e data riscatto |
 | `inventory` | disponibilità giornaliera dei pass |
 | `analytics` | eventi funnel, sessione, variante e proprietà allowlisted |
+| `loyalty_community` | stato di rilancio dell'account nella Community, note promozionali e data aggiornamento |
 
 Nel browser rimangono soltanto record personale, referral e una copia UX dei premi. Il server resta la fonte autorevole per validità, disponibilità e utilizzo dei voucher.
 

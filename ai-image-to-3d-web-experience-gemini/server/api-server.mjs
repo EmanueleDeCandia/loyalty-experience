@@ -70,6 +70,13 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL, session_id TEXT,
     variant TEXT, payload_json TEXT NOT NULL, created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS loyalty_community (
+    lead_id TEXT PRIMARY KEY,
+    community_relaunched INTEGER NOT NULL DEFAULT 0,
+    community_notes TEXT,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY(lead_id) REFERENCES leads(id)
+  );
   CREATE INDEX IF NOT EXISTS idx_vouchers_code ON vouchers(code);
   CREATE INDEX IF NOT EXISTS idx_referral_profiles_lead ON referral_profiles(lead_id);
   CREATE INDEX IF NOT EXISTS idx_hunts_referral ON hunts(referral_id);
@@ -310,18 +317,205 @@ async function route(req, res) {
 
   const voucherMatch = url.pathname.match(/^\/api\/vouchers\/([^/]+)(?:\/(redeem))?$/);
   if (voucherMatch && req.method === 'GET' && !voucherMatch[2]) {
-    const row = db.prepare('SELECT * FROM vouchers WHERE code=?').get(voucherMatch[1].toUpperCase());
-    if (!row) return json(res, 404, { valid: false, error: 'Voucher non trovato' });
+    const rawSearch = decodeURIComponent(voucherMatch[1]).toUpperCase().trim();
+    const row = db.prepare(`
+      SELECT v.*, l.contact, l.contact_type
+      FROM vouchers v
+      JOIN leads l ON l.id = v.lead_id
+      WHERE v.code = ? OR v.code LIKE ?
+      ORDER BY v.created_at DESC
+      LIMIT 1
+    `).get(rawSearch, `%${rawSearch}`);
+    if (!row) return json(res, 404, { valid: false, error: 'Codice non trovato' });
     const expired = row.expires_at <= Date.now();
-    return json(res, 200, { valid: row.status === 'active' && !expired, code: row.code, kind: row.kind, status: expired ? 'expired' : row.status, expiresAt: row.expires_at });
+    const isPass = row.kind === 'pass' || row.kind === 'pass_vip';
+    return json(res, 200, {
+      valid: row.status === 'active' && !expired,
+      code: row.code,
+      kind: row.kind,
+      tier: row.tier,
+      status: expired ? 'expired' : row.status,
+      contact: row.contact,
+      contactType: row.contact_type,
+      isPass,
+      entitlement: isPass ? 'Ingresso gratuito per 2 persone agli spettacoli' : 'Sconto 10€ Aperitivo Cena (per 2 persone)',
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+      redeemedAt: row.redeemed_at,
+    });
   }
   if (voucherMatch && voucherMatch[2] && req.method === 'POST') {
-    if (CASHIER_KEY && req.headers['x-cashier-key'] !== CASHIER_KEY) return json(res, 401, { error: 'Credenziale cassa non valida' });
-    const row = db.prepare('SELECT * FROM vouchers WHERE code=?').get(voucherMatch[1].toUpperCase());
-    if (!row || row.status !== 'active' || row.expires_at <= Date.now()) return json(res, 409, { valid: false, error: 'Voucher non valido, scaduto o già usato' });
-    db.prepare("UPDATE vouchers SET status='redeemed', redeemed_at=? WHERE id=? AND status='active'").run(Date.now(), row.id);
-    track('voucher_redeemed', row.hunt_id, null, { kind: row.kind });
-    return json(res, 200, { valid: true, code: row.code, status: 'redeemed', redeemedAt: Date.now() });
+    const isAdmin = req.headers.authorization === `Bearer ${ADMIN_TOKEN}`;
+    const isCashier = CASHIER_KEY ? req.headers['x-cashier-key'] === CASHIER_KEY : true;
+    if (!isAdmin && !isCashier) return json(res, 401, { error: 'Credenziale cassa non valida' });
+
+    const rawSearch = decodeURIComponent(voucherMatch[1]).toUpperCase().trim();
+    const row = db.prepare(`
+      SELECT v.*, l.contact, l.contact_type
+      FROM vouchers v
+      JOIN leads l ON l.id = v.lead_id
+      WHERE v.code = ? OR v.code LIKE ?
+      ORDER BY v.created_at DESC
+      LIMIT 1
+    `).get(rawSearch, `%${rawSearch}`);
+    if (!row) return json(res, 404, { valid: false, error: 'Codice non trovato' });
+    if (row.status === 'redeemed') {
+      return json(res, 409, { valid: false, error: 'Codice già utilizzato in precedenza', code: row.code, redeemedAt: row.redeemed_at, contact: row.contact });
+    }
+    if (row.expires_at <= Date.now()) {
+      return json(res, 409, { valid: false, error: 'Codice scaduto', code: row.code, expiresAt: row.expires_at });
+    }
+    const redeemedAt = Date.now();
+    db.prepare("UPDATE vouchers SET status='redeemed', redeemed_at=? WHERE id=? AND status='active'").run(redeemedAt, row.id);
+    track('voucher_redeemed', row.hunt_id, null, { kind: row.kind, code: row.code });
+    const isPass = row.kind === 'pass' || row.kind === 'pass_vip';
+    return json(res, 200, {
+      valid: true,
+      code: row.code,
+      status: 'redeemed',
+      redeemedAt,
+      contact: row.contact,
+      kind: row.kind,
+      tier: row.tier,
+      isPass,
+      entitlement: isPass ? 'Ingresso confermato per 2 persone' : 'Voucher aperitivo convalidato',
+    });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/loyalty/profile') {
+    const referralCode = url.searchParams.get('referralCode')?.trim().toUpperCase() || null;
+    const contact = url.searchParams.get('contact')?.trim().toLowerCase() || null;
+
+    let lead = null;
+    let refProfile = null;
+
+    if (contact) {
+      lead = db.prepare('SELECT * FROM leads WHERE contact=?').get(contact);
+    }
+    if (!lead && referralCode) {
+      refProfile = db.prepare('SELECT * FROM referral_profiles WHERE code=?').get(referralCode);
+      if (refProfile?.lead_id) {
+        lead = db.prepare('SELECT * FROM leads WHERE id=?').get(refProfile.lead_id);
+      }
+    }
+
+    const effectiveCode = referralCode || (lead ? db.prepare('SELECT code FROM referral_profiles WHERE lead_id=?').get(lead.id)?.code : null) || 'REF-GUEST';
+    const leadId = lead?.id || null;
+
+    // Punti dalle cacce giocate
+    let huntsCount = 0;
+    let pointsFromHunts = 0;
+    if (leadId) {
+      const stats = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(base_score + combo_bonus), 0) AS p FROM hunts WHERE lead_id=?').get(leadId);
+      huntsCount = Number(stats?.c || 0);
+      pointsFromHunts = Number(stats?.p || 0);
+    } else if (effectiveCode && effectiveCode !== 'REF-GUEST') {
+      const stats = db.prepare('SELECT COUNT(*) AS c, COALESCE(SUM(base_score + combo_bonus), 0) AS p FROM hunts WHERE referral_id=?').get(effectiveCode);
+      huntsCount = Number(stats?.c || 0);
+      pointsFromHunts = Number(stats?.p || 0);
+    }
+
+    // Amici invitati registrati (50 pt per amico registrato)
+    let invitedLeadsCount = 0;
+    let convertedReferralsCount = 0;
+    if (effectiveCode && effectiveCode !== 'REF-GUEST') {
+      invitedLeadsCount = Number(db.prepare('SELECT COUNT(DISTINCT lead_id) AS c FROM hunts WHERE incoming_referral=? AND lead_id IS NOT NULL').get(effectiveCode)?.c || 0);
+      convertedReferralsCount = Number(db.prepare(`
+        SELECT COUNT(DISTINCT h.lead_id) AS c
+        FROM hunts h
+        JOIN vouchers v ON v.hunt_id = h.id
+        WHERE h.incoming_referral=? AND v.status='redeemed'
+      `).get(effectiveCode)?.c || 0);
+    }
+
+    const referralPoints = invitedLeadsCount * 50;
+    const totalPoints = pointsFromHunts + referralPoints;
+
+    // Traguardi Community (500 pt & 1000 pt)
+    const badge500Unlocked = totalPoints >= 500;
+    const badge1000Unlocked = totalPoints >= 1000;
+
+    let communityRelaunched = false;
+    if (leadId) {
+      const comm = db.prepare('SELECT community_relaunched FROM loyalty_community WHERE lead_id=?').get(leadId);
+      communityRelaunched = Boolean(comm?.community_relaunched);
+    }
+
+    // Token di Impatto: 30 Token (= 30 € Cashback) ogni 3 referral convertiti
+    const milestoneStep = 3;
+    const tokensEarned = Math.floor(convertedReferralsCount / milestoneStep) * 30;
+    const euroValue = tokensEarned; // 1 Token = 1 €
+    const cycleProgress = convertedReferralsCount % milestoneStep;
+    const nextMilestoneRemaining = milestoneStep - cycleProgress;
+    const cleanCode = effectiveCode.replace('REF-', '');
+    const cashbackCode = tokensEarned > 0 ? `IMPACT-30-${cleanCode}` : null;
+
+    return json(res, 200, {
+      referralCode: effectiveCode,
+      contact: lead?.contact || null,
+      contactType: lead?.contact_type || null,
+      totalPoints,
+      pointsFromHunts,
+      referralPoints,
+      huntsCount,
+      invitedLeadsCount,
+      convertedReferralsCount,
+      communityRelaunched,
+      communityBadges: {
+        badge500: {
+          id: 'badge-500',
+          name: 'Community Ambassador',
+          targetPoints: 500,
+          unlocked: badge500Unlocked,
+          progress: Math.min(totalPoints, 500),
+          percentage: Math.min(100, Math.round((totalPoints / 500) * 100)),
+          perk: 'Rilancio del profilo nel sito web della Community con speciale Badge Bronze',
+          statusText: badge500Unlocked
+            ? (communityRelaunched ? 'Profilo rilanciato con successo nella Community!' : 'Traguardo raggiunto! Profilo idoneo al rilancio nella Community')
+            : `Ti mancano ${500 - totalPoints} pt per il rilancio nella Community`,
+        },
+        badge1000: {
+          id: 'badge-1000',
+          name: 'Custode Onorario (Community Legend)',
+          targetPoints: 1000,
+          unlocked: badge1000Unlocked,
+          progress: Math.min(totalPoints, 1000),
+          percentage: Math.min(100, Math.round((totalPoints / 1000) * 100)),
+          perk: 'Vetrina d’Onore permanente in Home Page Community e rilancio VIP con Badge Gold',
+          statusText: badge1000Unlocked
+            ? 'Complimenti! Hai raggiunto il massimo livello di Leggenda del Borgo!'
+            : `Ti mancano ${1000 - totalPoints} pt per la Vetrina d’Onore`,
+        },
+      },
+      impactTokens: {
+        convertedReferrals: convertedReferralsCount,
+        milestoneStep,
+        tokensEarned,
+        euroValue,
+        tokenToEuroRate: 1,
+        cycleProgress,
+        nextMilestoneRemaining,
+        cashbackCode,
+        isUnlocked: tokensEarned > 0,
+        rule: '3 referral convertiti = 30 Token di Impatto (30 € di Cashback nei Borghi del Festival)',
+      },
+    });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/loyalty/relaunch') {
+    if (req.headers.authorization !== `Bearer ${ADMIN_TOKEN}`) return json(res, 401, { error: 'Sessione amministratore non valida' });
+    const body = await readBody(req);
+    const { leadId, relaunched, notes } = body;
+    if (!leadId) return json(res, 400, { error: 'leadId obbligatorio' });
+    db.prepare(`
+      INSERT INTO loyalty_community (lead_id, community_relaunched, community_notes, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(lead_id) DO UPDATE SET
+        community_relaunched=excluded.community_relaunched,
+        community_notes=COALESCE(excluded.community_notes, loyalty_community.community_notes),
+        updated_at=excluded.updated_at
+    `).run(leadId, relaunched ? 1 : 0, notes || null, Date.now());
+    return json(res, 200, { success: true, leadId, relaunched: Boolean(relaunched) });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/analytics') {

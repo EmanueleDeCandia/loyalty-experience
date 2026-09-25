@@ -13,12 +13,13 @@ import { PipelineModal } from './components/PipelineModal';
 import { HuntHud } from './components/HuntHud';
 import { TreasureStartModal } from './components/TreasureStartModal';
 import { TreasureResultModal } from './components/TreasureResultModal';
+import { LoyaltyProgramModal } from './components/LoyaltyProgramModal';
 import { captureIncomingReferral } from './game/treasureCatalog';
 import { TreasureId } from './game/treasureCatalog';
 import { useTreasureHunt } from './game/useTreasureHunt';
 import { trackEvent } from './game/api';
 import { AdminDashboard } from './admin/AdminDashboard';
-import { BarChart3, Sparkles, Info } from 'lucide-react';
+import { BarChart3, Sparkles, Info, TicketCheck, Coins } from 'lucide-react';
 
 const PRESETS = {
   village: {
@@ -77,6 +78,8 @@ export function App() {
   const [isComparing, setIsComparing] = useState<boolean>(false);
   const [isPipelineOpen, setIsPipelineOpen] = useState<boolean>(false);
   const [isAdminOpen, setIsAdminOpen] = useState<boolean>(false);
+  const [adminInitialTab, setAdminInitialTab] = useState<'overview' | 'botteghino'>('overview');
+  const [isLoyaltyOpen, setIsLoyaltyOpen] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<ImageAnalysisResult | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -436,17 +439,44 @@ export function App() {
         />
       )}
 
-      {/* Accesso amministratore: sempre separato dai controlli dell'esperienza. */}
+      {/* Accesso amministratore e botteghino: sempre separato dai controlli dell'esperienza. */}
       {!isComparing && (
-        <button
-          type="button"
-          onClick={() => setIsAdminOpen(true)}
-          className="absolute right-3 top-3 z-40 flex items-center gap-2 rounded-2xl border border-emerald-300/30 bg-slate-950/90 p-2.5 text-xs font-extrabold text-white shadow-xl shadow-black/25 backdrop-blur-xl transition hover:bg-emerald-900 sm:px-3"
-          title="Apri la dashboard amministratore"
-        >
-          <BarChart3 className="h-4 w-4 text-emerald-400" />
-          <span className="hidden sm:inline">Dashboard</span>
-        </button>
+        <div className="absolute right-3 top-3 z-40 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsLoyaltyOpen(true)}
+            className="flex items-center gap-1.5 rounded-2xl border border-amber-400/50 bg-amber-950/90 px-3 py-2 text-xs font-black text-amber-300 shadow-xl shadow-black/25 backdrop-blur-xl transition hover:bg-amber-900 active:scale-95"
+            title="Visualizza saldo punti loyalty, traguardi community e token di impatto"
+          >
+            <Coins className="h-4 w-4 text-amber-400" />
+            <span className="hidden sm:inline">Loyalty & Token</span>
+            <span className="sm:hidden">Loyalty</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAdminInitialTab('botteghino');
+              setIsAdminOpen(true);
+            }}
+            className="flex items-center gap-1.5 rounded-2xl border border-emerald-400/40 bg-emerald-950/90 px-3 py-2 text-xs font-black text-emerald-300 shadow-xl shadow-black/25 backdrop-blur-xl transition hover:bg-emerald-900"
+            title="Postazione rapida controllo pass botteghino"
+          >
+            <TicketCheck className="h-4 w-4 text-emerald-400" />
+            <span>Botteghino</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAdminInitialTab('overview');
+              setIsAdminOpen(true);
+            }}
+            className="flex items-center gap-2 rounded-2xl border border-emerald-300/30 bg-slate-950/90 p-2 text-xs font-extrabold text-white shadow-xl shadow-black/25 backdrop-blur-xl transition hover:bg-emerald-900 sm:px-3"
+            title="Apri la dashboard amministratore"
+          >
+            <BarChart3 className="h-4 w-4 text-emerald-400" />
+            <span className="hidden sm:inline">Dashboard</span>
+          </button>
+        </div>
       )}
 
       {/* Comandi di gioco: pannello laterale indipendente dagli strumenti 3D. */}
@@ -530,9 +560,16 @@ export function App() {
         onReplay={handleReplayHunt}
         onClose={() => setIsResultModalOpen(false)}
         onClaim={hunt.claimVouchers}
+        onOpenLoyalty={() => setIsLoyaltyOpen(true)}
       />
 
-      {isAdminOpen && <AdminDashboard onClose={() => setIsAdminOpen(false)} />}
+      <LoyaltyProgramModal
+        isOpen={isLoyaltyOpen}
+        onClose={() => setIsLoyaltyOpen(false)}
+        referralId={hunt.result?.referralId}
+      />
+
+      {isAdminOpen && <AdminDashboard onClose={() => setIsAdminOpen(false)} initialTab={adminInitialTab} />}
 
       {/* Loading Overlay */}
       {isLoading && !isAdminOpen && (

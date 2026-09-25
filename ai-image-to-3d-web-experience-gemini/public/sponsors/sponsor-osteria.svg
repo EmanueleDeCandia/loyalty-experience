@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100">
+  <defs>
+    <linearGradient id="foodGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f08a5d"/>
+      <stop offset="50%" stop-color="#b83b5e"/>
+      <stop offset="100%" stop-color="#331832"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="100" rx="18" fill="#241512" stroke="#d49a37" stroke-width="2"/>
+  <circle cx="50" cy="50" r="28" fill="url(#foodGrad)"/>
+  <!-- Fork and Knife icon -->
+  <path d="M42 32 L42 46 Q42 52 46 54 L46 68 M44 32 L44 44 M48 32 L48 44 M54 32 Q58 36 58 46 L54 50 L54 68" stroke="#fdf6e6" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <text x="96" y="44" font-family="'Cinzel', Georgia, serif" font-weight="bold" font-size="20" fill="#fdf6e6" letter-spacing="1">OSTERIA DANTESCA</text>
+  <text x="96" y="68" font-family="system-ui, sans-serif" font-weight="600" font-size="12" fill="#f08a5d" letter-spacing="0.5">SAPORI TIPICI & APERITIVI DEL FESTIVAL</text>
+</svg>

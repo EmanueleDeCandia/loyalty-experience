@@ -117,5 +117,5 @@ try {
   console.log('✓ API caccia, A/B timer, lead gate, inventario e voucher monouso verificati');
 } finally {
   api.kill('SIGTERM');
-  rmSync(dbPath, { force: true }); rmSync(`${dbPath}-shm`, { force: true }); rmSync(`${dbPath}-wal`, { force: true });
+  try { rmSync(dbPath, { force: true }); rmSync(`${dbPath}-shm`, { force: true }); rmSync(`${dbPath}-wal`, { force: true }); } catch { /* ignore Windows file lock on quick exit */ }
 }

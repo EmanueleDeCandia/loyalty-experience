@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100">
+  <defs>
+    <linearGradient id="craftGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2f7d5c"/>
+      <stop offset="50%" stop-color="#1d5540"/>
+      <stop offset="100%" stop-color="#0a261c"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="100" rx="18" fill="#0d241d" stroke="#8ad0ad" stroke-width="2"/>
+  <circle cx="50" cy="50" r="28" fill="url(#craftGrad)"/>
+  <!-- Crown / Guild symbol -->
+  <path d="M36 64 L36 44 L44 52 L50 38 L56 52 L64 44 L64 64 Z" fill="none" stroke="#f2fbf5" stroke-width="2.5" stroke-linejoin="round"/>
+  <text x="96" y="44" font-family="'Cinzel', Georgia, serif" font-weight="bold" font-size="20" fill="#f2fbf5" letter-spacing="1">BOTTEGHE DEL BORGO</text>
+  <text x="96" y="68" font-family="system-ui, sans-serif" font-weight="600" font-size="12" fill="#8ad0ad" letter-spacing="0.5">ARTIGIANATO STORICO & TRADIZIONE</text>
+</svg>

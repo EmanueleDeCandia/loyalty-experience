@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100" width="400" height="100">
+  <defs>
+    <linearGradient id="wineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#b83b5e"/>
+      <stop offset="50%" stop-color="#6a097d"/>
+      <stop offset="100%" stop-color="#3f1052"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="100" rx="18" fill="#1f1124" stroke="#cfa436" stroke-width="2"/>
+  <circle cx="50" cy="50" r="28" fill="url(#wineGrad)"/>
+  <path d="M42 34 Q50 30 58 34 L58 48 Q58 56 50 60 Q42 56 42 48 Z M50 60 L50 68 M40 68 L60 68" stroke="#fdf6e6" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <text x="96" y="44" font-family="'Cinzel', Georgia, serif" font-weight="bold" font-size="20" fill="#fdf6e6" letter-spacing="1">CANTINE DEL BORGO</text>
+  <text x="96" y="68" font-family="system-ui, sans-serif" font-weight="600" font-size="12" fill="#e8a87c" letter-spacing="0.5">VINI D'ECCELLENZA & APERITIVI</text>
+</svg>

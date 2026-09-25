@@ -1,11 +1,46 @@
 import { TierDefinition, TierId } from './treasureCatalog';
 import { createQrDataUrl } from './qrCode';
 
-/**
- * Share card generata lato client: una visual card pronta da pubblicare o
- * salvare, con medaglia, punteggio, titolo utente, claim del voucher Aperitivo
- * Cena e QR code con referral univoco.
- */
+export type SocialFormat = 'story' | 'feed';
+
+export interface SponsorOption {
+  id: string;
+  name: string;
+  tagline: string;
+  logoUrl: string;
+  badgeText: string;
+}
+
+export const AVAILABLE_SPONSORS: SponsorOption[] = [
+  {
+    id: 'dante_official',
+    name: 'Dante Festival',
+    tagline: 'Partner Istituzionale Ufficiale',
+    logoUrl: '/sponsors/sponsor-dante.svg',
+    badgeText: 'Main Partner',
+  },
+  {
+    id: 'cantine_borgo',
+    name: 'Cantine del Borgo',
+    tagline: 'Vini d’Eccellenza & Aperitivi',
+    logoUrl: '/sponsors/sponsor-cantine.svg',
+    badgeText: 'Wine Partner',
+  },
+  {
+    id: 'osteria_dantesca',
+    name: 'Osteria Dantesca',
+    tagline: 'Sapori Tipici & Aperitivi del Festival',
+    logoUrl: '/sponsors/sponsor-osteria.svg',
+    badgeText: 'Food Partner',
+  },
+  {
+    id: 'botteghe_borgo',
+    name: 'Botteghe del Borgo',
+    tagline: 'Artigianato Storico & Tradizione',
+    logoUrl: '/sponsors/sponsor-artigianato.svg',
+    badgeText: 'Craft Partner',
+  },
+];
 
 export interface ShareCardData {
   tier: TierDefinition;
@@ -17,8 +52,9 @@ export interface ShareCardData {
   voucherLabel: string;
   voucherRule: string;
   referralLink: string;
-  qrPayload: string;
   referralId: string;
+  format?: SocialFormat;
+  sponsor?: SponsorOption;
 }
 
 const TIER_COLORS: Record<TierId, { light: string; mid: string; dark: string }> = {
@@ -74,215 +110,357 @@ function roundRect(
   ctx.closePath();
 }
 
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number,
-  maxLines = 3
-): number {
-  const words = text.split(' ');
-  let line = '';
-  let lines = 0;
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxWidth && line) {
-      ctx.fillText(line, x, y + lines * lineHeight);
-      lines += 1;
-      line = word;
-      if (lines >= maxLines) break;
-    } else {
-      line = test;
-    }
-  }
-  if (lines < maxLines) {
-    ctx.fillText(line, x, y + lines * lineHeight);
-    lines += 1;
-  }
-  return lines;
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
 }
 
 /**
- * Disegna la share card su canvas e restituisce un data URL PNG.
- * Restituisce null quando il canvas non è disponibile (ambienti headless).
+ * Disegna la share card in formato ottimizzato:
+ * - 'story' (9:16, 1080x1920): Instagram Stories, TikTok, Facebook Stories, WhatsApp Status
+ * - 'feed' (1:1, 1080x1080): Instagram & Facebook Post
+ * 
+ * Integra il QR code per SFIDARE il borgo con il link referral personale,
+ * e il logo/banner dello sponsor prescelto.
  */
 export async function renderShareCard(data: ShareCardData): Promise<string | null> {
   try {
     if (typeof document === 'undefined') return null;
     const canvas = document.createElement('canvas');
-    const width = 900;
-    const height = 1200;
+    const isStory = data.format !== 'feed'; // default is story (9:16)
+    const width = 1080;
+    const height = isStory ? 1920 : 1080;
     canvas.width = width;
     canvas.height = height;
+
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
     const palette = TIER_COLORS[data.tier.id];
+    const sponsor = data.sponsor || AVAILABLE_SPONSORS[0];
 
-    // Cielo del borgo sospeso
+    // Sfondo: cielo crepuscolare del borgo sospeso
     const sky = ctx.createLinearGradient(0, 0, 0, height);
-    sky.addColorStop(0, '#0d2138');
-    sky.addColorStop(0.34, '#2a5f8e');
-    sky.addColorStop(0.66, '#7fb2d6');
-    sky.addColorStop(1, '#e9f3fa');
+    sky.addColorStop(0, '#071626');
+    sky.addColorStop(0.28, '#183c5e');
+    sky.addColorStop(0.62, '#487ea9');
+    sky.addColorStop(1, '#c5def0');
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, width, height);
 
-    // Bagliori e pulviscolo
-    for (let i = 0; i < 90; i++) {
-      const x = Math.random() * width;
-      const y = Math.random() * height * 0.7;
-      const r = Math.random() * 2.2 + 0.4;
-      ctx.globalAlpha = 0.18 + Math.random() * 0.5;
-      ctx.fillStyle = '#fdf6e6';
+    // Particelle dorate e stelle nel cielo
+    for (let i = 0; i < (isStory ? 120 : 70); i++) {
+      const px = Math.random() * width;
+      const py = Math.random() * height * 0.75;
+      const pr = Math.random() * 2.5 + 0.5;
+      ctx.globalAlpha = 0.2 + Math.random() * 0.55;
+      ctx.fillStyle = i % 3 === 0 ? '#ffd873' : '#fdf6e6';
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.arc(px, py, pr, 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalAlpha = 1;
 
-    // Cornice dorata
-    ctx.strokeStyle = 'rgba(207,164,54,0.9)';
-    ctx.lineWidth = 6;
-    roundRect(ctx, 28, 28, width - 56, height - 56, 34);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(244,224,164,0.5)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, 44, 44, width - 88, height - 88, 26);
-    ctx.stroke();
-
-    // Titolo
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#fdf6e6';
-    ctx.font = '700 30px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText('DANTE FESTIVAL', width / 2, 128);
-    ctx.font = '800 58px Cinzel, Georgia, serif';
-    ctx.fillText('CACCIA AI TESORI', width / 2, 196);
-    ctx.font = 'italic 34px "IM Fell English", Georgia, serif';
-    ctx.fillStyle = 'rgba(253,246,230,0.85)';
-    ctx.fillText('del borgo sospeso', width / 2, 244);
-
-    // Medaglia
-    const medalY = 396;
-    const medalGradient = ctx.createRadialGradient(width / 2 - 40, medalY - 46, 20, width / 2, medalY, 150);
-    medalGradient.addColorStop(0, palette.light);
-    medalGradient.addColorStop(0.55, palette.mid);
-    medalGradient.addColorStop(1, palette.dark);
-    ctx.beginPath();
-    ctx.arc(width / 2, medalY, 138, 0, Math.PI * 2);
-    ctx.fillStyle = medalGradient;
-    ctx.fill();
+    // Cornice dorata elegante
+    ctx.strokeStyle = 'rgba(207,164,54,0.92)';
     ctx.lineWidth = 8;
-    ctx.strokeStyle = 'rgba(43,28,6,0.55)';
+    roundRect(ctx, 32, 32, width - 64, height - 64, 40);
     ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(width / 2, medalY, 112, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth = 4;
+
+    ctx.strokeStyle = 'rgba(244,224,164,0.45)';
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, 48, 48, width - 96, height - 96, 32);
     ctx.stroke();
-    if (data.tier.id === 'diamond') {
-      ctx.save();
-      ctx.translate(width / 2, medalY);
-      ctx.fillStyle = 'rgba(43,28,6,0.75)';
+
+    if (isStory) {
+      // ==========================================
+      // LAYOUT STORIA & TIKTOK (9:16 - 1080 x 1920)
+      // ==========================================
+
+      // 1. Header
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fdf6e6';
+      ctx.font = '700 34px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('DANTE FESTIVAL', width / 2, 140);
+
+      ctx.font = '800 68px Cinzel, Georgia, serif';
+      ctx.fillStyle = '#ffd873';
+      ctx.fillText('CACCIA AI TESORI', width / 2, 220);
+
+      ctx.font = 'italic 38px "IM Fell English", Georgia, serif';
+      ctx.fillStyle = 'rgba(253,246,230,0.9)';
+      ctx.fillText('del borgo sospeso', width / 2, 275);
+
+      // 2. Medaglione
+      const medalY = 510;
+      const medalRadius = 160;
+      const medalGrad = ctx.createRadialGradient(width / 2 - 40, medalY - 50, 20, width / 2, medalY, 180);
+      medalGrad.addColorStop(0, palette.light);
+      medalGrad.addColorStop(0.55, palette.mid);
+      medalGrad.addColorStop(1, palette.dark);
+
       ctx.beginPath();
-      ctx.moveTo(0, -78);
-      ctx.lineTo(52, -26);
-      ctx.lineTo(0, 78);
-      ctx.lineTo(-52, -26);
-      ctx.closePath();
+      ctx.arc(width / 2, medalY, medalRadius, 0, Math.PI * 2);
+      ctx.fillStyle = medalGrad;
       ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.72)';
+
+      ctx.lineWidth = 10;
+      ctx.strokeStyle = 'rgba(43,28,6,0.6)';
+      ctx.stroke();
+
       ctx.beginPath();
-      ctx.moveTo(0, -56);
-      ctx.lineTo(36, -20);
-      ctx.lineTo(0, 56);
-      ctx.lineTo(-36, -20);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    } else if (data.tier.id !== 'none') {
-      drawStar(ctx, width / 2, medalY, 84, 36, 'rgba(43,28,6,0.75)');
-      drawStar(ctx, width / 2, medalY - 4, 58, 24, 'rgba(255,255,255,0.7)');
-    } else {
-      ctx.font = '800 96px "Plus Jakarta Sans", system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(43,28,6,0.7)';
-      ctx.fillText('?', width / 2, medalY + 34);
-    }
+      ctx.arc(width / 2, medalY, medalRadius - 28, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
 
-    // Nastro tier
-    ctx.font = '700 34px Cinzel, Georgia, serif';
-    const tierLabel = data.tier.id === 'none' ? 'Nessuna medaglia' : `Medaglia di ${data.tier.medalName}`;
-    const ribbonWidth = Math.max(320, ctx.measureText(tierLabel).width + 80);
-    ctx.fillStyle = '#a9512f';
-    roundRect(ctx, width / 2 - ribbonWidth / 2, 552, ribbonWidth, 62, 31);
-    ctx.fill();
-    ctx.fillStyle = '#fdf1e2';
-    ctx.font = '700 30px Cinzel, Georgia, serif';
-    ctx.fillText(tierLabel, width / 2, 594);
-
-    // Punteggio e titolo utente
-    ctx.fillStyle = '#12293f';
-    ctx.font = '800 96px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText(`${data.score} pt`, width / 2, 730);
-    ctx.font = '700 30px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(18,41,63,0.78)';
-    ctx.fillText(
-      `${data.userTitle} · ${data.foundCount}/${data.totalCount} figurine${data.comboCount > 0 ? ` · ${data.comboCount} combo` : ''}`,
-      width / 2,
-      774
-    );
-
-    // Voucher Aperitivo Cena
-    const voucherY = 824;
-    ctx.fillStyle = 'rgba(253,246,230,0.94)';
-    roundRect(ctx, 78, voucherY, width - 156, 208, 26);
-    ctx.fill();
-    ctx.save();
-    ctx.setLineDash([14, 10]);
-    ctx.strokeStyle = 'rgba(184,134,47,0.9)';
-    ctx.lineWidth = 4;
-    roundRect(ctx, 78, voucherY, width - 156, 208, 26);
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.textAlign = 'left';
-    ctx.fillStyle = '#2f7d5c';
-    ctx.font = '700 22px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText('PREMIO SBLOCCATO', 118, voucherY + 48);
-    ctx.fillStyle = '#2b1c06';
-    ctx.font = '800 30px "Plus Jakarta Sans", system-ui, sans-serif';
-    wrapText(ctx, data.voucherLabel, 118, voucherY + 92, width - 156 - 300, 36, 2);
-    ctx.fillStyle = 'rgba(43,28,6,0.72)';
-    ctx.font = '600 22px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText(data.voucherRule, 118, voucherY + 168);
-
-    // QR code con referral
-    const qr = await createQrDataUrl(data.qrPayload, { size: 300, light: '#fdf6e6' });
-    if (qr) {
-      const image = await new Promise<HTMLImageElement | null>(resolve => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = qr;
-      });
-      if (image) {
-        ctx.fillStyle = '#fdf6e6';
-        roundRect(ctx, width - 156 - 216, voucherY + 16, 196, 176, 18);
+      if (data.tier.id === 'diamond') {
+        ctx.save();
+        ctx.translate(width / 2, medalY);
+        ctx.fillStyle = 'rgba(43,28,6,0.8)';
+        ctx.beginPath();
+        ctx.moveTo(0, -90);
+        ctx.lineTo(60, -30);
+        ctx.lineTo(0, 90);
+        ctx.lineTo(-60, -30);
+        ctx.closePath();
         ctx.fill();
-        ctx.drawImage(image, width - 156 - 210, voucherY + 22, 184, 164);
+        ctx.restore();
+      } else if (data.tier.id !== 'none') {
+        drawStar(ctx, width / 2, medalY, 100, 44, 'rgba(43,28,6,0.78)');
+        drawStar(ctx, width / 2, medalY - 5, 72, 30, 'rgba(255,255,255,0.75)');
       }
-    }
 
-    // Footer con link referral
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#12293f';
-    ctx.font = '700 26px "Plus Jakarta Sans", system-ui, sans-serif';
-    ctx.fillText('Inquadra il QR e sfida il borgo', width / 2, 1086);
-    ctx.fillStyle = 'rgba(18,41,63,0.7)';
-    ctx.font = '600 21px "Plus Jakarta Sans", system-ui, sans-serif';
-    wrapText(ctx, data.referralLink, width / 2, 1122, width - 200, 28, 2);
+      // Nastro Medaglia
+      const tierLabel = data.tier.id === 'none' ? 'Esploratore del Borgo' : `Medaglia di ${data.tier.medalName}`;
+      ctx.font = '700 36px Cinzel, Georgia, serif';
+      const ribbonW = Math.max(420, ctx.measureText(tierLabel).width + 100);
+      ctx.fillStyle = '#a9512f';
+      roundRect(ctx, width / 2 - ribbonW / 2, 700, ribbonW, 72, 36);
+      ctx.fill();
+      ctx.strokeStyle = '#f4e0a4';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fdf1e2';
+      ctx.fillText(tierLabel, width / 2, 748);
+
+      // Punteggio & Titolo
+      ctx.fillStyle = '#0c2237';
+      ctx.font = '900 120px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(`${data.score} pt`, width / 2, 905);
+
+      ctx.font = '700 36px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(12,34,55,0.85)';
+      ctx.fillText(
+        `${data.userTitle} · ${data.foundCount}/${data.totalCount} figurine${data.comboCount > 0 ? ` · ${data.comboCount} combo` : ''}`,
+        width / 2,
+        960
+      );
+
+      // 3. Card Invito & QR Code con Referral
+      const qrBoxY = 1020;
+      const qrBoxH = 500;
+      ctx.fillStyle = 'rgba(253,246,230,0.96)';
+      roundRect(ctx, 80, qrBoxY, width - 160, qrBoxH, 36);
+      ctx.fill();
+
+      ctx.save();
+      ctx.setLineDash([16, 12]);
+      ctx.strokeStyle = 'rgba(184,134,47,0.95)';
+      ctx.lineWidth = 4;
+      roundRect(ctx, 80, qrBoxY, width - 160, qrBoxH, 36);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#8a6a12';
+      ctx.font = '800 28px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('INQUADRA IL QR E SFIDA IL MIO RECORD!', width / 2, qrBoxY + 60);
+
+      // QR Code che punta al referral link (per giocare la caccia!)
+      const qrDataUrl = await createQrDataUrl(data.referralLink, { size: 360, light: '#fdf6e6' });
+      if (qrDataUrl) {
+        const qrImg = await loadImage(qrDataUrl);
+        if (qrImg) {
+          const qrSize = 250;
+          ctx.drawImage(qrImg, width / 2 - qrSize / 2, qrBoxY + 85, qrSize, qrSize);
+        }
+      }
+
+      // Codice invito in evidenza (non un URL brutto!)
+      ctx.fillStyle = '#1d5540';
+      ctx.font = '800 32px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(`CODICE INVITO: ${data.referralId}`, width / 2, qrBoxY + 395);
+
+      ctx.fillStyle = '#6b5940';
+      ctx.font = '600 24px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('Gioca anche tu e sblocca il Voucher 10€ e i Pass Festival', width / 2, qrBoxY + 440);
+
+      // 4. Sezione Sponsor & Co-branding (in basso)
+      const sponsorY = 1580;
+      const sponsorH = 240;
+      ctx.fillStyle = 'rgba(13,33,56,0.92)';
+      roundRect(ctx, 80, sponsorY, width - 160, sponsorH, 32);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(207,164,54,0.75)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      const sponsorLogo = await loadImage(sponsor.logoUrl);
+      if (sponsorLogo) {
+        ctx.drawImage(sponsorLogo, 110, sponsorY + 30, 240, 60);
+      }
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#cfa436';
+      ctx.font = '800 22px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(sponsor.badgeText.toUpperCase(), sponsorLogo ? 380 : 120, sponsorY + 58);
+
+      ctx.fillStyle = '#fdf6e6';
+      ctx.font = '800 36px Cinzel, Georgia, serif';
+      ctx.fillText(sponsor.name, sponsorLogo ? 380 : 120, sponsorY + 105);
+
+      ctx.fillStyle = 'rgba(253,246,230,0.85)';
+      ctx.font = '600 24px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(sponsor.tagline, sponsorLogo ? 380 : 120, sponsorY + 148);
+
+      ctx.font = 'italic 20px "IM Fell English", Georgia, serif';
+      ctx.fillStyle = '#ffd873';
+      ctx.fillText('Partner ufficiale Dante Festival · Esperienza 3D del Borgo', sponsorLogo ? 380 : 120, sponsorY + 185);
+
+    } else {
+      // ==========================================
+      // LAYOUT FEED / POST QUADRATO (1:1 - 1080 x 1080)
+      // ==========================================
+
+      // 1. Header compatto
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fdf6e6';
+      ctx.font = '700 26px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('DANTE FESTIVAL · CACCIA AI TESORI', width / 2, 105);
+
+      // 2. Colonna sinistra: Medaglia & Punteggio | Colonna destra: QR Invito
+      // Medaglia
+      const medalX = 300;
+      const medalY = 320;
+      const medalRadius = 120;
+      const medalGrad = ctx.createRadialGradient(medalX - 30, medalY - 35, 15, medalX, medalY, 130);
+      medalGrad.addColorStop(0, palette.light);
+      medalGrad.addColorStop(0.55, palette.mid);
+      medalGrad.addColorStop(1, palette.dark);
+
+      ctx.beginPath();
+      ctx.arc(medalX, medalY, medalRadius, 0, Math.PI * 2);
+      ctx.fillStyle = medalGrad;
+      ctx.fill();
+
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = 'rgba(43,28,6,0.6)';
+      ctx.stroke();
+
+      if (data.tier.id !== 'none') {
+        drawStar(ctx, medalX, medalY, 75, 32, 'rgba(43,28,6,0.75)');
+        drawStar(ctx, medalX, medalY - 4, 52, 22, 'rgba(255,255,255,0.75)');
+      }
+
+      // Nastro sotto medaglia
+      ctx.fillStyle = '#a9512f';
+      const tierLabel = data.tier.id === 'none' ? 'Esploratore' : `Medaglia di ${data.tier.medalName}`;
+      roundRect(ctx, medalX - 160, 460, 320, 52, 26);
+      ctx.fill();
+      ctx.fillStyle = '#fdf1e2';
+      ctx.font = '700 26px Cinzel, Georgia, serif';
+      ctx.fillText(tierLabel, medalX, 496);
+
+      // Punti
+      ctx.fillStyle = '#0c2237';
+      ctx.font = '900 88px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(`${data.score} pt`, medalX, 610);
+
+      ctx.font = '700 26px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(12,34,55,0.85)';
+      ctx.fillText(`${data.foundCount}/${data.totalCount} figurine`, medalX, 655);
+
+      // Box QR a destra
+      const qrBoxX = 560;
+      const qrBoxY = 170;
+      const qrBoxW = 440;
+      const qrBoxH = 520;
+      ctx.fillStyle = 'rgba(253,246,230,0.96)';
+      roundRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 30);
+      ctx.fill();
+
+      ctx.save();
+      ctx.setLineDash([14, 10]);
+      ctx.strokeStyle = 'rgba(184,134,47,0.95)';
+      ctx.lineWidth = 3.5;
+      roundRect(ctx, qrBoxX, qrBoxY, qrBoxW, qrBoxH, 30);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#8a6a12';
+      ctx.font = '800 22px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('INQUADRA E GIOCA!', qrBoxX + qrBoxW / 2, qrBoxY + 50);
+
+      const qrDataUrl = await createQrDataUrl(data.referralLink, { size: 300, light: '#fdf6e6' });
+      if (qrDataUrl) {
+        const qrImg = await loadImage(qrDataUrl);
+        if (qrImg) {
+          const qrSize = 220;
+          ctx.drawImage(qrImg, qrBoxX + qrBoxW / 2 - qrSize / 2, qrBoxY + 75, qrSize, qrSize);
+        }
+      }
+
+      ctx.fillStyle = '#1d5540';
+      ctx.font = '800 24px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(`CODICE INVITO`, qrBoxX + qrBoxW / 2, qrBoxY + 340);
+      ctx.font = '900 28px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(`${data.referralId}`, qrBoxX + qrBoxW / 2, qrBoxY + 375);
+
+      ctx.fillStyle = '#6b5940';
+      ctx.font = '600 18px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText('Voucher 10€ sbloccato per tutti', qrBoxX + qrBoxW / 2, qrBoxY + 430);
+      ctx.fillText('e Pass x2 Festival ai migliori', qrBoxX + qrBoxW / 2, qrBoxY + 458);
+
+      // Sponsor Bar in basso (Feed)
+      const sponsorY = 740;
+      const sponsorH = 260;
+      ctx.fillStyle = 'rgba(13,33,56,0.92)';
+      roundRect(ctx, 80, sponsorY, width - 160, sponsorH, 28);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(207,164,54,0.75)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      const sponsorLogo = await loadImage(sponsor.logoUrl);
+      if (sponsorLogo) {
+        ctx.drawImage(sponsorLogo, 120, sponsorY + 35, 240, 60);
+      }
+
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#cfa436';
+      ctx.font = '800 20px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(sponsor.badgeText.toUpperCase(), sponsorLogo ? 390 : 120, sponsorY + 60);
+
+      ctx.fillStyle = '#fdf6e6';
+      ctx.font = '800 34px Cinzel, Georgia, serif';
+      ctx.fillText(sponsor.name, sponsorLogo ? 390 : 120, sponsorY + 105);
+
+      ctx.fillStyle = 'rgba(253,246,230,0.85)';
+      ctx.font = '600 22px "Plus Jakarta Sans", system-ui, sans-serif';
+      ctx.fillText(sponsor.tagline, sponsorLogo ? 390 : 120, sponsorY + 145);
+
+      ctx.font = 'italic 19px "IM Fell English", Georgia, serif';
+      ctx.fillStyle = '#ffd873';
+      ctx.fillText('Partner ufficiale Dante Festival · Condividi la sfida con gli amici', sponsorLogo ? 390 : 120, sponsorY + 185);
+    }
 
     return canvas.toDataURL('image/png');
   } catch {
