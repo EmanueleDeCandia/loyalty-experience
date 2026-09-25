@@ -9,7 +9,7 @@ import { getDashboardData, seedDashboardDemo } from './admin-dashboard.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 try { loadEnvFile(resolve(ROOT, '.env')); } catch { /* configurazione via ambiente */ }
-const PORT = Number(process.env.API_PORT || 8787);
+const PORT = Number(process.env.PORT || process.env.API_PORT || 8787);
 const HOST = process.env.API_HOST || '0.0.0.0';
 const DB_PATH = resolve(ROOT, process.env.DATABASE_PATH || 'data/loyalty.sqlite');
 const DAILY_PASSES = Number(process.env.DAILY_PASS_ALLOWANCE || 20);
